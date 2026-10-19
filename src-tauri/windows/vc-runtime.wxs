@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <!-- Tauri clears the WiX environment except for TAURI-prefixed variables.
+       CI exports the selected MSVC version through this preserved variable.
+       Local builds without it require the runtime with the new mutex ABI. -->
+  <?ifdef env.TAURI_LAP_VC_RUNTIME_MIN_VERSION ?>
+    <?define LapVcRuntimeMinVersion = "$(env.TAURI_LAP_VC_RUNTIME_MIN_VERSION)" ?>
+  <?else ?>
+    <?define LapVcRuntimeMinVersion = "14.40.33810.0" ?>
+  <?endif ?>
+  <?if $(sys.BUILDARCH) = "arm64" ?>
+    <?define LapVcRuntimeArch = "arm64" ?>
+  <?else ?>
+    <?define LapVcRuntimeArch = "x64" ?>
+  <?endif ?>
+
+  <Fragment>
+    <!-- Tauri references this empty group to link the whole fragment. It adds
+         only AppSearch/LaunchCondition rows, with no files or custom actions. -->
+    <ComponentGroup Id="LapVcRuntimeCheck" />
+    <Property Id="LAP_VC_RUNTIME_AVAILABLE" Secure="yes">
+      <DirectorySearch Id="LapVcRuntimeDirectory" Path="[System64Folder]" Depth="0">
+        <FileSearch Id="LapVcRuntimeDll" Name="msvcp140.dll"
+                    MinVersion="$(var.LapVcRuntimeMinVersion)" />
+      </DirectorySearch>
+    </Property>
+    <!-- Do not use Installed as a bypass: updates/repairs also need the runtime.
+         Full uninstall (including removal during a major upgrade) is allowed. -->
+    <Condition Message="Lap requires Microsoft Visual C++ Runtime $(var.LapVcRuntimeMinVersion) or later ($(var.LapVcRuntimeArch)). Install or update it from https://aka.ms/vc14/vc_redist.$(var.LapVcRuntimeArch).exe, then run this installer again."><![CDATA[REMOVE~="ALL" OR LAP_VC_RUNTIME_AVAILABLE]]></Condition>
+  </Fragment>
+</Wix>

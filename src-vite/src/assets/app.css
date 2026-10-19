@@ -1,0 +1,289 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  /* Explicit list: `themes: all` adds prefers-color-scheme dark on :root and can override data-theme after CSS minify. Order matches daisyUI themeOrder. */
+  themes: light --default, dark, cupcake, bumblebee, emerald, corporate, synthwave, retro, cyberpunk, valentine, halloween, garden, forest, aqua, lofi, pastel, fantasy, wireframe, black, luxury, dracula, cmyk, autumn, business, acid, lemonade, night, coffee, winter, dim, nord, sunset, caramellatte, abyss, silk;
+  root: ":root";
+  logs: false;
+}
+
+html, body {
+  overscroll-behavior: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE/Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+
+@utility input {
+  @apply h-8 border-1 rounded-box focus:border-2 focus:outline-none focus:border-primary hover:bg-base-100 hover:text-base-content cursor-text transition-colors duration-200;
+}
+
+@utility textarea {
+  @apply border-1 rounded-box focus:border-2 focus:outline-none focus:border-primary hover:bg-base-100 hover:text-base-content cursor-text transition-colors duration-200;
+}
+
+@utility select {
+  @apply h-8 w-fit rounded-box focus:outline-none focus:rounded-box hover:bg-base-100 hover:text-base-content cursor-pointer transition-colors duration-200;
+}
+
+/* button */
+.t-button-default {
+  @apply btn btn-sm rounded-box min-w-20;
+}
+
+.t-button-primary {
+  @apply btn btn-sm rounded-box min-w-20 btn-primary;
+}
+
+.t-button-error {
+  @apply btn btn-sm rounded-box min-w-20 btn-error;
+}
+
+/* icon */
+.t-icon-size-xs {
+  @apply w-4 h-4;
+}
+.t-icon-size-sm {
+  @apply w-5 h-5;
+}
+.t-icon-size {
+  @apply w-6 h-6;
+}
+.t-icon-size-lg {
+  @apply w-8 h-8;
+}
+
+/* transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* sidebar layout */
+@utility sidebar-panel {
+  @apply w-full h-full flex flex-col select-none;
+}
+
+/* sidebar section header */
+@utility sidebar-section-label {
+  @apply px-2 h-10 flex items-center text-sm text-base-content/30 cursor-default whitespace-nowrap;
+}
+
+/* sidebar panel header */
+@utility sidebar-panel-header {
+  @apply px-2 h-10 flex items-center justify-between gap-1 whitespace-nowrap shrink-0 text-base-content/30;
+}
+
+@utility sidebar-panel-header-title {
+  @apply font-bold mr-auto uppercase text-xs tracking-wide leading-none;
+}
+
+@utility sidebar-panel-action {
+  @apply shrink-0 text-base-content/30 hover:text-base-content/70 transition-colors;
+}
+
+@utility sidebar-header-tabs {
+  @apply tabs tabs-sm flex-1 flex-nowrap items-center gap-3;
+}
+
+@utility sidebar-header-tab {
+  @apply tab h-10 px-0 min-w-0 whitespace-nowrap font-bold uppercase text-xs tracking-wide leading-none;
+}
+
+.sidebar-header-tab.tab-active {
+  @apply text-primary;
+}
+
+/* sidebar list items */
+@utility sidebar-item {
+  @apply mx-1 px-1 h-10 flex items-center rounded-box whitespace-nowrap cursor-pointer transition-all duration-200 ease-in-out;
+}
+
+@utility sidebar-item-hover {
+  @apply hover:text-base-content hover:bg-base-100/30;
+}
+
+@utility sidebar-item-selected {
+  @apply text-primary bg-base-100 hover:bg-base-100;
+}
+
+.sidebar-pane-inactive .sidebar-item-selected,
+.sidebar-pane-inactive .selected-item {
+  @apply text-base-content/70 bg-base-100/30 hover:bg-base-100/30;
+}
+
+@utility sidebar-item-compact {
+  @apply h-8 mr-1;
+}
+
+@utility sidebar-item-media {
+  @apply h-12;
+}
+
+@utility sidebar-item-label {
+  @apply flex-1 overflow-hidden whitespace-pre text-ellipsis;
+}
+
+@utility sidebar-item-count {
+  @apply badge badge-xs tabular-nums border-0 bg-base-100/30 text-base-content/30;
+}
+
+/* sidebar empty state */
+@utility sidebar-empty {
+  @apply mt-2 mb-4 px-2 flex flex-col items-center justify-center text-base-content/30;
+}
+
+/* thumbnail badges */
+@utility thumb-badge {
+  @apply inline-flex h-5 items-center gap-1 rounded-full border px-1.5 text-[10px] font-semibold tracking-[0.02em] shadow-sm backdrop-blur-sm;
+  border-color: color-mix(in srgb, white 22%, transparent);
+  background: color-mix(in srgb, black 54%, transparent);
+  color: rgba(255, 255, 255, 0.94);
+}
+
+@utility thumb-badge-muted {
+  background: color-mix(in srgb, black 40%, transparent);
+}
+
+@utility thumb-badge-highlight {
+  border-color: color-mix(in srgb, var(--color-warning) 50%, white 16%);
+  background: color-mix(in srgb, var(--color-warning) 22%, black 48%);
+  color: color-mix(in srgb, white 88%, var(--color-warning) 12%);
+}
+
+.map-photo-marker-wrapper {
+  background: transparent;
+  border: 0;
+}
+
+.map-photo-marker {
+  opacity: 0;
+  transition: opacity var(--map-photo-fade-duration, 200ms) ease;
+  position: relative;
+  width: var(--map-photo-marker-size, 64px);
+  height: var(--map-photo-marker-size, 64px);
+  overflow: visible;
+}
+
+.map-photo-marker-visible .map-photo-marker {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-photo-marker { transition: none; }
+}
+
+.map-photo-marker::after {
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid white;
+  border-right: 7px solid transparent;
+  border-left: 7px solid transparent;
+  content: '';
+  transform: translateX(-50%);
+}
+
+.map-photo-marker img {
+  display: block;
+  width: var(--map-photo-marker-size, 64px);
+  height: var(--map-photo-marker-size, 64px);
+  aspect-ratio: 1;
+  border: 2px solid white;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 2px 7px rgb(0 0 0 / 35%);
+}
+
+.map-photo-marker span {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  min-width: 18px;
+  padding: 1px 4px;
+  border: 1px solid white;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--color-primary-content);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+.photo-map-view .leaflet-control-scale {
+  margin: 0 0 10px 10px;
+}
+
+.photo-map-view .leaflet-control-scale-line {
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 45%, transparent);
+  border-radius: var(--radius-box);
+  background: color-mix(in srgb, var(--color-base-100) 72%, transparent);
+  color: var(--color-base-content);
+  text-shadow: none;
+  backdrop-filter: blur(6px);
+}
+
+/* Trigger Chromium to composite map tiles consistently without resizing them. */
+.photo-map-view .leaflet-tile,
+.file-info-map-view .leaflet-tile {
+  outline: 1px solid transparent;
+}
+
+.leaflet-container {
+  background: transparent !important;
+}
+
+/* Draggable panel splitters: a thin indicator bar painted as a gradient that is
+   opaque at the center and fades to transparent toward both ends. It stays
+   hidden until hovered or dragged, then fades in/out via opacity — a
+   background-image gradient cannot be transitioned directly.
+   Orientation: .splitter-vertical fades along height, .splitter-horizontal
+   along width. .splitter-dragging keeps the bar visible while dragging. */
+.splitter-indicator {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.splitter-vertical {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--color-primary) 0%, transparent),
+    var(--color-primary),
+    color-mix(in oklab, var(--color-primary) 0%, transparent)
+  );
+}
+
+.splitter-horizontal {
+  background-image: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--color-primary) 0%, transparent),
+    var(--color-primary),
+    color-mix(in oklab, var(--color-primary) 0%, transparent)
+  );
+}
+
+/* Hover reveals the bar after a 200ms delay, so a cursor merely passing over
+   the divider doesn't flash it; it fades out immediately on leave. Dragging
+   reveals it at once (the later rule overrides the hover delay). */
+.splitter-indicator:hover {
+  opacity: 1;
+  transition: opacity 150ms ease 200ms;
+}
+
+.splitter-indicator.splitter-dragging {
+  opacity: 1;
+  transition: opacity 150ms ease;
+}

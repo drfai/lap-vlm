@@ -1,0 +1,316 @@
+name: Release Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to publish Windows assets to"
+        required: true
+        type: string
+      build_target:
+        description: "Architecture to build"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - x64
+          - arm64
+
+permissions:
+  contents: write
+
+env:
+  # Pin the Tauri CLI so bundled toolchain changes in a floating
+  # `@tauri-apps/cli@v2` cannot silently break packaging. Bump deliberately.
+  TAURI_CLI_VERSION: '2.12.0'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          ALL='[
+            {"arch":"x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","msvc_arch":"x64","msvc_vsversion":"2022","platform_key":"windows-x86_64","artifact_name":"windows-x86_64","msi_glob":"*_x64_*.msi"},
+            {"arch":"arm64","runner":"windows-11-arm","target":"aarch64-pc-windows-msvc","msvc_arch":"arm64","msvc_vsversion":"","platform_key":"windows-aarch64","artifact_name":"windows-aarch64","msi_glob":"*_arm64_*.msi"}
+          ]'
+
+          INPUT="${{ github.event.inputs.build_target }}"
+          if [ -z "$INPUT" ] || [ "$INPUT" = "all" ]; then
+            SEL="$ALL"
+          else
+            SEL=$(echo "$ALL" | jq -c --arg a "$INPUT" '[.[] | select(.arch == $a)]')
+            if [ "$SEL" = "[]" ]; then
+              echo "Unknown build_target: $INPUT"
+              exit 1
+            fi
+          fi
+
+          MATRIX=$(echo "$SEL" | jq -c '{include: .}')
+          echo "Generated matrix: $MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: setup
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: windows-${{ matrix.arch }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            windows-${{ matrix.arch }}-pnpm-store-
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\bin\
+            ~\.cargo\registry\index\
+            ~\.cargo\registry\cache\
+            ~\.cargo\git\db\
+          key: windows-${{ matrix.arch }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            windows-${{ matrix.arch }}-cargo-release-
+
+      - name: Install frontend dependencies
+        working-directory: src-vite
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache AI Models
+        id: cache-ai-models
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/resources/models
+          key: ${{ runner.os }}-models-${{ hashFiles('scripts/download_models.sh', 'scripts/download_models.ps1') }}
+
+      - name: Download AI Models (Windows)
+        if: steps.cache-ai-models.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: .\scripts\download_models.ps1
+
+      - name: Force app frontend build command (Windows CI only)
+        shell: pwsh
+        run: |
+          $path = "src-tauri/tauri.conf.json"
+          $json = Get-Content $path -Raw | ConvertFrom-Json
+          $json.build.beforeBuildCommand = "pnpm --dir ../src-vite build || pnpm --dir src-vite build"
+          $json | ConvertTo-Json -Depth 100 | Set-Content -Path $path -Encoding utf8
+
+      - name: Setup MSVC build environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+          vsversion: ${{ matrix.msvc_vsversion }}
+
+      - name: Set MSI runtime prerequisite version
+        shell: pwsh
+        run: |
+          if (-not $env:VCToolsVersion) { throw "MSVC toolset version is missing." }
+          $toolset = [version]$env:VCToolsVersion.Trim()
+          $minimum = [version]::new($toolset.Major, $toolset.Minor, [Math]::Max(0, $toolset.Build), [Math]::Max(0, $toolset.Revision))
+          "TAURI_LAP_VC_RUNTIME_MIN_VERSION=$minimum" >> $env:GITHUB_ENV
+          Write-Host "MSI runtime minimum: $minimum"
+
+      - name: Remove ranlib from PATH
+        shell: pwsh
+        run: |
+          $paths = $env:PATH -split ';' | Where-Object {
+            $_ -and
+            -not (Test-Path (Join-Path $_ 'ranlib.exe'))
+          }
+          "PATH=$($paths -join ';')" >> $env:GITHUB_ENV
+
+      - name: Clear cached Windows bundle artifacts
+        shell: pwsh
+        run: |
+          $bundleDir = "src-tauri/target/${{ matrix.target }}/release/bundle"
+          if (Test-Path $bundleDir) {
+            Remove-Item -Recurse -Force $bundleDir
+          }
+
+      - name: Download FFmpeg Sidecars (Windows)
+        shell: pwsh
+        run: .\scripts\download_ffmpeg_sidecar.ps1 -Arch ${{ matrix.arch }}
+
+      - name: Install pinned Tauri CLI
+        run: npm install -g @tauri-apps/cli@${{ env.TAURI_CLI_VERSION }}
+
+      - name: Build and Sign (Windows ${{ matrix.arch }})
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APTABASE_KEY: ${{ secrets.APTABASE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          tauriScript: tauri
+          args: --verbose --target ${{ matrix.target }} --bundles msi
+
+      - name: Verify MSI runtime prerequisite
+        shell: pwsh
+        run: |
+          $msis = @(Get-ChildItem -Path "src-tauri/target/${{ matrix.target }}/release/bundle/msi" -Filter "*.msi" -File)
+          if ($msis.Count -ne 1) { throw "Expected exactly one Windows MSI." }
+          .\scripts\test_windows_msi_runtime.ps1 -MsiPath $msis[0].FullName
+
+      - name: Upload Build Artifact (Windows ${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi.sig
+          if-no-files-found: error
+
+  publish-windows:
+    needs: build-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: windows-*
+          path: release-files
+          merge-multiple: true
+
+      - name: Show release files
+        run: ls -la release-files
+
+      - name: Show current release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          gh release view "$TAG" -R "$GH_REPO" --json assets --jq '.assets[].name'
+
+      - name: Wait for latest.json asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          for i in $(seq 1 80); do
+            rm -f release-files/latest.json
+            if gh release download "$TAG" -R "$GH_REPO" -p "latest.json" -D release-files >/dev/null 2>&1; then
+              echo "latest.json for $TAG is available."
+              exit 0
+            fi
+            echo "latest.json not ready yet for $TAG (attempt $i/80), waiting 30s..."
+            sleep 30
+          done
+          echo "Timed out waiting for latest.json on release $TAG."
+          exit 1
+
+      - name: Update latest.json with Windows updater entries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.release_tag }}"
+          VERSION="${TAG#v}"
+          REPO="${{ github.repository }}"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          rm -f release-files/latest.json
+          gh release download "$TAG" -R "$GH_REPO" -p "latest.json" -D release-files >/dev/null 2>&1
+          if [ ! -f release-files/latest.json ]; then
+            echo "latest.json is required but was not downloaded."
+            exit 1
+          fi
+
+          # merge_entry <platform_key> <msi_glob>
+          # Tauri's MSI filename embeds the architecture: "Lap_<version>_x64_en-US.msi"
+          # or "Lap_<version>_arm64_en-US.msi", so we can separate architectures by glob.
+          merge_entry() {
+            local key="$1"
+            local glob="$2"
+
+            local msi
+            msi="$(find release-files -maxdepth 1 -type f -name "$glob" ! -name '*.sig' | head -n 1)"
+            if [ -z "${msi}" ]; then
+              echo "No MSI found matching '$glob' for $key — skipping."
+              return 0
+            fi
+
+            local sig_file="${msi}.sig"
+            if [ ! -f "$sig_file" ]; then
+              echo "Missing updater signature file for $msi ($key)."
+              exit 1
+            fi
+
+            local name sig_content tmp
+            name="$(basename "$msi")"
+            sig_content="$(cat "$sig_file")"
+            tmp="$(mktemp)"
+
+            jq \
+              --arg version "$VERSION" \
+              --arg pub_date "$PUB_DATE" \
+              --arg key "$key" \
+              --arg sig "$sig_content" \
+              --arg url "https://github.com/${REPO}/releases/download/${TAG}/${name}" \
+              '
+              .version = $version
+              | .pub_date = $pub_date
+              | .platforms = (.platforms // {})
+              | .platforms[$key] = {"signature": $sig, "url": $url}
+              ' release-files/latest.json > "$tmp"
+            mv "$tmp" release-files/latest.json
+            echo "Recorded $key -> $name"
+          }
+
+          merge_entry "windows-x86_64" "*_x64_*.msi"
+          merge_entry "windows-aarch64" "*_arm64_*.msi"
+
+          echo "Final latest.json:"
+          cat release-files/latest.json
+
+      - name: Upload Windows assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          gh release upload "$TAG" -R "$GH_REPO" release-files/* --clobber

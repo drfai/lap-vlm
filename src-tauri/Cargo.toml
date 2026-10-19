@@ -1,0 +1,107 @@
+[package]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+name = "Lap"
+version = "0.3.3"
+description = "An offline-first photo manager for large local libraries."
+homepage = "https://julyx10.github.io/lap"
+repository = "https://github.com/julyx10/lap"
+authors = ["julyx10 <tiangle@gmail.com>"]
+edition = "2024"
+license = "GPL-3.0-or-later"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1"
+pkg-config = "0.3"
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[dependencies]
+drag = { path = "vendor/drag" }
+tauri = { version = "2", features = [
+    "macos-private-api",
+    "protocol-asset",
+] }
+tauri-plugin-window-state = "2.4.1"
+tauri-plugin-shell = "2.3.5"
+tauri-plugin-os = "2.3.2"
+tauri-plugin-fs = "2.4.5"
+tauri-plugin-dialog = "2.6.0"
+tauri-plugin-process = "2.3.1"
+# FORK: updater 已禁用（指向官方 releases，会覆盖本 fork）。见 tauri.conf.json 的 plugins 注释。
+# tauri-plugin-updater = "2.10.0"
+tauri-plugin-aptabase = "1.0.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32.1", features = ["bundled", "collation"] }
+chrono = "0.4"
+rstar = "0.12"
+csv = "1"
+dirs = "5.0.1"
+walkdir = "2.5.0"
+trash = "3.3.1"
+base64 = "0.22.1"
+flate2 = "1"
+http = "1"
+# FORK: VLM 适配层解析 base_url 用
+url = "2"
+image = "0.25.10"
+png = "0.18.1"
+kamadak-exif = "0.6.1"
+little_exif = "0.6.23"
+fast_image_resize = "5.1.0"
+imagesize = "0.13.0"
+tokio = { version = "1.50.0", features = ["full"] }
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls"] }
+opener = "0.7.2"
+arboard = "3.6.1"
+pinyin = "0.10.0"
+once_cell = "1.21.4"
+rand = "0.8"
+# FORK: rc.10 -> rc.14 + load-dynamic。
+# rc.10 的静态预编译 onnxruntime 库缺 MSVC STL 向量化符号导致链接失败;
+# rc.14 同样缺(预编译库都是旧 MSVC 编的)。改用 load-dynamic 运行时加载
+# onnxruntime.dll, 编译期不静态链接有问题的 .lib, 彻底绕开 ABI 冲突。
+# 需在运行时通过 ORT_DYLIB_PATH 或 init_from 提供 onnxruntime.dll。
+ort = { version = "=2.0.0-rc.14", default-features = false, features = [
+    "std",
+    "ndarray",
+    "load-dynamic",
+] }
+# FORK: rc.14 要求 ndarray 0.17
+ndarray = "0.17"
+tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
+uuid = { version = "1", features = ["v4"] }
+blake3 = "1.8.3"
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+jxl-oxide = { version = "0.12.5", features = ["image"] }
+libc = "0.2"
+hnsw_rs = "0.3.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+percent-encoding = "2.3.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSScreen", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSDictionary", "NSError", "NSLocale", "NSString", "NSURL"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+clipboard-win = "5.4.1"
+windows = { version = "0.61.3", default-features = false, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Globalization", "Win32_System_Com", "Win32_UI_Shell"] }
+
+[features]
+# This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+devtools = ["tauri/devtools"]

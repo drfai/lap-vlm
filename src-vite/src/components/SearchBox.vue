@@ -1,0 +1,138 @@
+<template>
+  <div 
+    class="group relative shrink-0 overflow-hidden group"
+    :class="[isFocused || searchValue.length > 0 ? 'w-48' : 'w-9']"
+  >
+    <input 
+      tabindex="-1"
+      ref="searchInputRef"
+      type="text"
+      v-model="inputValue"
+      maxlength="255"
+      :placeholder="searchValue.length > 0 ? searchValue :  (isFocused ? $t('toolbar.search.placeholder') : '')"
+      :class="[
+        'py-1 h-8 w-full text-sm input bg-transparent transition-colors duration-300 rounded-box',
+        isFocused || searchValue.length > 0 ? 'px-8 focus:border focus:rounded-box border-primary' : 'px-2 group-hover:bg-base-100/30 cursor-text'
+      ]"
+      @focus="handleFocus"
+      @blur="handleBlur"
+      @input="handleInput"
+    />
+
+    <!-- Search Icon (Inside input when focused) -->
+    <IconSearch
+      class="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 group-hover:text-base-content z-10 cursor-pointer"
+      @click="focusInput"
+    />
+    <!-- Cancel Icon (Only show when there's input) -->
+    <IconClose v-if="searchValue.length > 0" 
+      class="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 hover:text-base-content cursor-pointer z-10 transition-all duration-200"
+      @click="clickCancel"
+    />
+  </div>
+
+</template>
+
+<script setup lang="ts">
+import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { IconClose, IconSearch } from '@/common/icons';
+import { listen } from '@tauri-apps/api/event';
+import { useUIStore } from '@/stores/uiStore';
+
+const props = defineProps({
+  modelValue: {
+    type: String,
+    required: true,
+  },
+});
+
+const emit = defineEmits(['update:modelValue']);
+const uiStore = useUIStore();
+
+// input value
+const inputValue = ref('');
+const isFocused = ref(false);
+const searchValue = ref(props.modelValue);
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+let unlistenKeydown: () => void;
+
+onMounted(async () => {
+  unlistenKeydown = await listen('global-keydown', handleKeyDown);
+});
+
+onUnmounted(() => {
+  if (unlistenKeydown) {
+    unlistenKeydown();
+  }
+});
+
+watch(() => props.modelValue, (newValue) => { 
+  inputValue.value = newValue; 
+}, { immediate: true });
+
+function handleKeyDown(event: any) {
+  if (!uiStore.isInputActive('SearchBox')) return;
+
+  const { key } = event.payload;
+  switch (key) {
+    case 'Enter':
+      clickSearch();
+      break;
+    case 'Escape':
+      if (isFocused.value) {
+        clickCancel();
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+const focusInput = () => {
+  if(!isFocused.value) {
+    isFocused.value = true;
+    searchInputRef.value?.focus();
+  }
+};
+
+const handleFocus = () => {
+  isFocused.value = true;
+  uiStore.pushInputHandler('SearchBox');
+};
+
+const handleBlur = () => {
+  if (inputValue.value.length === 0) {
+    isFocused.value = false;
+  }
+  uiStore.removeInputHandler('SearchBox');
+};
+
+function handleInput(event: any) {
+  // if (inputValue.value.length === 0)
+  //   emit('update:modelValue', inputValue.value);
+};
+
+const clickCancel = () => {
+  inputValue.value = '';
+  updateSearch(inputValue.value);
+};
+
+const clickSearch = () => {
+  updateSearch(inputValue.value.trim());
+};
+
+const updateSearch = (value: string) => {
+  emit('update:modelValue', value);
+  searchValue.value = value;
+
+  searchInputRef.value?.blur();
+  isFocused.value = false;
+};
+
+defineExpose({ 
+  focusInput,
+  isFocused
+});
+
+</script>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lap</title>
+    <script>
+      (function() {
+        try {
+          var config = JSON.parse(localStorage.getItem('configStore'));
+          var isDark = true;
+          if (config && config.settings && config.settings.appearance === 0) {
+            isDark = false;
+          }
+          
+          var color = isDark ? '#1d232a' : '#ffffff';
+          document.documentElement.style.backgroundColor = color;
+        } catch (e) {
+          document.documentElement.style.backgroundColor = '#1d232a';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <div class="boot-screen" aria-label="Loading">
+        <div class="boot-spinner"></div>
+      </div>
+    </div>
+    <style>
+      html, body, #app {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+      .boot-screen {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: inherit;
+        opacity: 0;
+        animation: boot-show 0s linear 0.5s forwards;
+      }
+      .boot-spinner {
+        width: 36px;
+        height: 36px;
+        border-radius: 9999px;
+        border: 3px solid rgba(148, 163, 184, 0.35);
+        border-top-color: #38bdf8;
+        animation: boot-spin 0.8s linear infinite;
+      }
+      @keyframes boot-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes boot-show {
+        to { opacity: 1; }
+      }
+    </style>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

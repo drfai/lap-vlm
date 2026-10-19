@@ -1,0 +1,1216 @@
+<template>
+  <div
+    ref="videoContainer"
+    class="relative w-full h-full overflow-hidden cursor-pointer"
+    :class="{ 'pointer-events-none': !isActive }"
+    style="touch-action: none;"
+    @wheel.prevent="handleWheel"
+    @contextmenu="handleContextMenu"
+  >
+    <div v-if="originalUnavailable" class="absolute inset-0 z-30 flex items-center justify-center bg-base-200">
+      <img v-if="offlinePoster" :src="offlinePoster" class="max-w-full max-h-full object-contain" @error="offlinePoster = ''" />
+      <div v-else class="flex flex-col items-center justify-center text-base-content/30">
+        <IconVideoSlash class="w-8 h-8 mb-2" />
+        <span>{{ $t('tooltip.not_found.files') }}</span>
+      </div>
+    </div>
+    <TransitionGroup :name="transitionName" @after-leave="handleTransitionEnd">
+      <div
+        v-for="index in [0, 1]"
+        v-show="activeVideo === index"
+        :key="`vid-${index}`"
+        class="slide-wrapper absolute inset-0 w-full h-full pointer-events-none overflow-hidden"
+      >
+        <div class="w-full h-full pointer-events-auto overflow-hidden">
+          <video
+            :key="`video-el-${index}-${playerEpochs[index]}`"
+            :ref="(el) => { if (el) videoElements[index] = el as HTMLVideoElement }"
+            class="video-js"
+          ></video>
+        </div>
+      </div>
+    </TransitionGroup>
+
+    <div v-if="showPlayOverlay && !hasError && !isPlaying && !isLoading" class="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+      <div
+        class="w-16 h-16 rounded-full bg-base-100/70 flex items-center justify-center hover:scale-110 transition-all duration-300 ease-out group pointer-events-auto cursor-pointer"
+        @click.stop="clickPlayVideo"
+      >
+        <component :is="isReplaying ? IconVideoReplay : IconVideoPlay" class="w-8 h-8" />
+      </div>
+    </div>
+
+    <Transition name="loading-overlay">
+      <div v-if="showSpinner" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20 bg-base-200/20 px-6 text-center">
+        <span class="loading loading-spinner loading-lg text-primary opacity-80"></span>
+        <div class="mt-4 text-sm font-medium text-base-content/70 drop-shadow-md">{{ loadingLabel }}</div>
+        <div v-if="isCompatibilityProcessing" class="mt-2 flex max-w-md flex-col items-center text-xs text-base-content/60">
+          <div>
+            {{ $t('video.errors.external_player_recommended') }}
+          </div>
+          <button
+            v-if="canOpenExternalApp"
+            class="btn btn-primary btn-sm mt-4 pointer-events-auto"
+            @click.stop="openInExternalApp"
+          >
+            {{ externalOpenLabel }}
+          </button>
+        </div>
+      </div>
+    </Transition>
+
+    <div v-if="hasError && !isLoading" class="absolute inset-0 flex flex-col items-center justify-center z-10 px-6 text-center overflow-hidden bg-black/50">
+      
+      <div class="relative z-20 flex flex-col items-center justify-center">
+        <IconVideoSlash class="w-10 h-10 mb-3 text-base-content/30" />
+        <div class="max-w-md text-sm whitespace-pre-line text-base-content/30 font-medium">{{ errorMessage }}</div>
+        <div v-if="canOpenExternalApp" class="mt-4 pointer-events-auto">
+          <button class="btn btn-primary btn-sm" @click.stop="openInExternalApp">{{ externalOpenLabel }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { GESTURE_LOCK_THRESHOLD, HORIZONTAL_NAV_THRESHOLD, PLAYBACK_DEADLINE_MS, DIRECT_PLAYBACK_TIMEOUT_MS, LOADING_OVERLAY_DELAY_MS } from '@/common/constants';
+import { ref, watch, onMounted, onBeforeUnmount, computed, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { config } from '@/common/config';
+import { IconVideoSlash, IconVideoPlay, IconVideoReplay } from '@/common/icons';
+import videojs from 'video.js/core';
+import 'video.js/dist/video-js.min.css';
+import { getThumbUrl, getAssetSrc, isLinux, isMac, isWin } from '@/common/utils';
+import { openFileWithApp } from '@/common/api';
+import zhCN from 'video.js/dist/lang/zh-CN.json';
+import {
+  prepareVideo,
+  cancelVideoPrepare,
+  isWebViewVideoPlaybackDisabled,
+  type VideoPrepareMode,
+} from '@/common/video';
+
+videojs.addLanguage('zh-CN', zhCN);
+
+const props = defineProps({
+  originalUnavailable: { type: Boolean, default: false },
+  fileId: { type: Number, default: 0 },
+  thumbnailSrc: { type: String, default: '' },
+  filePath: { type: String, required: false },
+  rotate: { type: Number, default: 0 },
+  isZoomFit: { type: Boolean, default: false },
+  isSlideShow: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: true },
+  playOnActivate: { type: Boolean, default: false },
+  viewportState: { type: Object, default: null },
+  showControls: { type: Boolean, default: true },
+  showPlayOverlay: { type: Boolean, default: true },
+});
+
+const emit = defineEmits(['message-from-video-viewer', 'slideshow-next', 'scale', 'viewport-change', 'context-menu']);
+const { t: $t } = useI18n();
+
+const videoContainer = ref<HTMLDivElement | null>(null);
+const videoElements = ref<HTMLVideoElement[]>([]);
+const players = ref<(ReturnType<typeof videojs> | null)[]>([null, null]);
+const playerEpochs = ref([0, 0]);
+const videoJsLang = computed(() => (config.settings.language === 'zh' ? 'zh-CN' : config.settings.language));
+
+const offlinePoster = ref('');
+watch(() => [props.originalUnavailable, props.fileId, props.thumbnailSrc], () => {
+  offlinePoster.value = props.thumbnailSrc || (props.fileId ? getThumbUrl(props.fileId, false, config.settings.thumbnailSize) : '');
+}, { immediate: true });
+const hasError = ref(false);
+const errorMessage = ref('');
+const isLoading = ref(false);
+const showSpinner = ref(false);
+const isCompatibilityProcessing = ref(false);
+const isPlaying = ref(false);
+const isReplaying = ref(false);
+const isFit = ref(false);
+const scale = ref(1);
+const viewportOffset = ref({ x: 0, y: 0 });
+const rotate = ref(0);
+const noTransition = ref(false);
+const activeVideo = ref(0);
+const playerInstanceId = globalThis.crypto?.randomUUID?.()
+  ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const getPlayerId = (index: number) => `${playerInstanceId}-${index}`;
+let currentLoadingId = 0;
+let nextBackendRequestId = 0;
+const activeBackendRequestIds: Array<number | null> = [null, null];
+const loadAttemptCleanups: Array<(() => void) | null> = [null, null];
+
+const externalVideoApp = computed(() => config.defaultExternalApp('video'));
+const externalVideoAppPath = computed(() => String(externalVideoApp.value?.path || '').trim());
+const externalVideoAppName = computed(() => String(externalVideoApp.value?.name || '').trim());
+const canOpenExternalApp = computed(() => !props.originalUnavailable && !!(props.filePath && externalVideoAppPath.value));
+const externalOpenLabel = computed(() => {
+  if (externalVideoAppName.value) {
+    return $t('video.errors.open_in_external_app_named', { app: externalVideoAppName.value }) || `Open in ${externalVideoAppName.value}`;
+  }
+  return $t('video.errors.open_in_external_app') || 'Open in external player';
+});
+const loadingLabel = computed(() => (
+  isCompatibilityProcessing.value ? $t('video.loading_compatible') : $t('video.loading')
+));
+
+async function openInExternalApp() {
+  if (props.originalUnavailable || !props.filePath || !externalVideoAppPath.value) return;
+  await openFileWithApp(props.filePath, externalVideoAppPath.value);
+}
+
+function handleContextMenu(event: MouseEvent) {
+  if (!(event.target instanceof HTMLVideoElement)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  emit('context-menu', event);
+}
+
+let isTouchpadDevice = false;
+let horizontalDeltaAccumulator = 0;
+let verticalDeltaAccumulator = 0;
+let gestureResetTimeout: ReturnType<typeof setTimeout> | null = null;
+let hasNavigatedThisGesture = false;
+const gestureType = ref<'none' | 'zoom' | 'nav'>('none');
+const navDirection = ref<'next' | 'prev' | ''>('');
+let lastDeltaX = 0;
+
+const transitionName = computed(() => {
+  if (props.isSlideShow) return 'slide-next';
+  if (navDirection.value) return navDirection.value === 'next' ? 'slide-next' : 'slide-prev';
+  return '';
+});
+
+function handleTransitionEnd() {
+  navDirection.value = '';
+}
+
+function resetSwipeState() {
+  gestureType.value = 'none';
+  horizontalDeltaAccumulator = 0;
+  verticalDeltaAccumulator = 0;
+  hasNavigatedThisGesture = false;
+  lastDeltaX = 0;
+  navDirection.value = '';
+  if (gestureResetTimeout) {
+    clearTimeout(gestureResetTimeout);
+    gestureResetTimeout = null;
+  }
+}
+
+const playerOptions = computed(() => ({
+  responsive: false,
+  fluid: false,
+  width: '100%',
+  height: '100%',
+  autoplay: false,
+  muted: config.video.muted,
+  controls: props.showControls,
+  preload: 'auto',
+  language: videoJsLang.value,
+  playbackRates: [0.5, 1, 1.25, 1.5, 2],
+  disablePictureInPicture: true,
+  errorDisplay: false,
+  controlBar: {
+    pictureInPictureToggle: false,
+    playbackRateMenuButton: false,
+    fullscreenToggle: false,
+    audioTrackButton: false,
+    volumePanel: { inline: true },
+  },
+}));
+
+const getActivePlayer = () => players.value[activeVideo.value];
+
+let playbackDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
+let loadingOverlayTimer: ReturnType<typeof setTimeout> | null = null;
+const directPlaybackTypes: Record<string, string> = {
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+};
+
+function getDirectPlaybackType(filePath: string): string | null {
+  const extension = filePath.split('.').pop()?.toLowerCase() || '';
+  const supportedExtensions = isMac
+    ? ['mp4', 'm4v', 'mov', 'webm']
+    : (isWin || isLinux ? ['mp4', 'm4v', 'webm'] : []);
+  return supportedExtensions.includes(extension) ? directPlaybackTypes[extension] : null;
+}
+
+function shouldBypassDirectPlayback(filePath: string): boolean {
+  const extension = filePath.split('.').pop()?.toLowerCase() || '';
+  return extension === 'mkv';
+}
+
+function startCompatibilityProcessing(loadId: number) {
+  if (loadId !== currentLoadingId) return;
+  isCompatibilityProcessing.value = true;
+}
+
+function resetCompatibilityProcessing() {
+  isCompatibilityProcessing.value = false;
+}
+
+function clearLoadingOverlayTimer() {
+  if (!loadingOverlayTimer) return;
+  clearTimeout(loadingOverlayTimer);
+  loadingOverlayTimer = null;
+}
+
+function clearPlaybackDeadlineTimer() {
+  if (!playbackDeadlineTimer) return;
+  clearTimeout(playbackDeadlineTimer);
+  playbackDeadlineTimer = null;
+}
+
+function resetLoadingUi() {
+  clearLoadingOverlayTimer();
+  clearPlaybackDeadlineTimer();
+  isLoading.value = false;
+  showSpinner.value = false;
+  resetCompatibilityProcessing();
+}
+
+function getTransformContainer(player: ReturnType<typeof videojs> | null): HTMLElement | null {
+  const playerElement = player?.el();
+  // Native fullscreen is applied to the Video.js player, not the outer Vue
+  // container. Its dimensions are the only correct basis for fit-to-screen.
+  return player?.isFullscreen() && playerElement ? playerElement : videoContainer.value;
+}
+
+const updateTransform = (options: boolean | { resetRotation?: boolean, recalcScale?: boolean } = false) => {
+  const resetRotation = typeof options === 'boolean' ? options : (options.resetRotation ?? false);
+  const recalcScale = typeof options === 'boolean' ? options : (options.recalcScale ?? false);
+  const player = getActivePlayer();
+  const video = player?.el().querySelector('video') as HTMLVideoElement | null;
+  if (!video) return;
+
+  if (noTransition.value) video.classList.add('no-transition');
+  else video.classList.remove('no-transition');
+
+  if (resetRotation) rotate.value = props.rotate;
+
+  const videoWidth = player?.videoWidth();
+  const videoHeight = player?.videoHeight();
+  const transformContainer = getTransformContainer(player);
+  const containerWidth = transformContainer?.clientWidth;
+  const containerHeight = transformContainer?.clientHeight;
+  const isRotated = rotate.value % 180 !== 0;
+
+  // IMPORTANT: Set dimensions to natural size to prevent clipping inside the tag
+  if (videoWidth && videoHeight) {
+    video.style.width = `${videoWidth}px`;
+    video.style.height = `${videoHeight}px`;
+  } else {
+    video.style.width = 'auto';
+    video.style.height = 'auto';
+  }
+
+  video.style.position = 'absolute';
+  video.style.top = '50%';
+  video.style.left = '50%';
+  video.style.objectFit = 'fill'; // Use fill since we handle the element size
+  video.style.transformOrigin = 'center center';
+  video.style.maxWidth = 'none';
+  video.style.maxHeight = 'none';
+
+  if (recalcScale) {
+    scale.value = 1;
+    if (isFit.value && videoWidth && videoHeight && containerWidth && containerHeight) {
+      const w = isRotated ? videoHeight : videoWidth;
+      const h = isRotated ? videoWidth : videoHeight;
+      scale.value = Math.min(containerWidth / w, containerHeight / h);
+    }
+  }
+
+  if (videoWidth && videoHeight && containerWidth && containerHeight) {
+    const width = (isRotated ? videoHeight : videoWidth) * scale.value;
+    const height = (isRotated ? videoWidth : videoHeight) * scale.value;
+    // Match Image.vue's clampPosition per axis, including its pixel rounding:
+    // center content that fits, otherwise keep its edges outside the viewport.
+    const limitX = (width - containerWidth) / 2;
+    const limitY = (height - containerHeight) / 2;
+    viewportOffset.value = {
+      x: Math.floor(width) > containerWidth
+        ? Math.min(Math.max(viewportOffset.value.x, -limitX), limitX)
+        : 0,
+      y: Math.floor(height) > containerHeight
+        ? Math.min(Math.max(viewportOffset.value.y, -limitY), limitY)
+        : 0,
+    };
+  }
+
+  video.style.transform = `translate(calc(-50% + ${viewportOffset.value.x}px), calc(-50% + ${viewportOffset.value.y}px)) rotate(${rotate.value}deg) scale(${scale.value})`;
+
+  emit('scale', { scale: scale.value, displayScale: scale.value, minScale: 0.1, maxScale: 10 });
+  emit('viewport-change', { scale: scale.value, isZoomFit: isFit.value, fileType: 2 });
+};
+
+function refreshFullscreenLayout(index: number) {
+  if (activeVideo.value !== index) return;
+
+  // Video.js promotes its own player element to fullscreen, leaving the outer
+  // Vue container at its original size. Wait for the browser to apply the new
+  // fullscreen bounds before recalculating our custom video transform.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (activeVideo.value === index) {
+        updateTransform({ recalcScale: isFit.value });
+      }
+    });
+  });
+}
+
+const setupPlayer = (index: number) => {
+  const el = videoElements.value[index];
+  if (!el) return;
+  if (!players.value[index]) {
+    players.value[index] = videojs(el, playerOptions.value);
+    const player = players.value[index]!;
+    player.volume(config.video.volume);
+    player.muted(config.video.muted);
+
+    player.on('fullscreenchange', () => refreshFullscreenLayout(index));
+    player.on('playerresize', () => refreshFullscreenLayout(index));
+
+    player.on('error', () => {
+      if (activeVideo.value === index) {
+        handlePlayerError(player);
+      }
+    });
+
+    player.on('play', () => {
+      if (activeVideo.value === index) {
+        if (!props.isActive) {
+          player.pause();
+          return;
+        }
+        isPlaying.value = true;
+        isReplaying.value = false;
+      }
+    });
+
+    player.on('pause', () => {
+      if (activeVideo.value === index) {
+        isPlaying.value = false;
+        isReplaying.value = false;
+      }
+    });
+
+    player.on('ended', () => {
+      if (activeVideo.value === index) {
+        if (!props.isSlideShow && config.settings.loopVideo) {
+          player.play().catch(() => {});
+          return;
+        }
+        isPlaying.value = false;
+        isReplaying.value = true;
+        if (props.isSlideShow) {
+          emit('slideshow-next');
+        }
+      }
+    });
+
+    player.on('volumechange', () => {
+      if (activeVideo.value === index && !isLoading.value && props.isActive) {
+        config.setVideoVolume(player.volume());
+        config.setVideoMuted(player.muted());
+      }
+    });
+  }
+};
+
+async function recreatePlayer(index: number) {
+  loadAttemptCleanups[index]?.();
+  loadAttemptCleanups[index] = null;
+
+  const player = players.value[index];
+  if (player) {
+    player.off();
+    try {
+      player.dispose();
+    } catch (error) {
+      console.warn('[Video] Failed to dispose player:', error);
+    }
+    players.value[index] = null;
+  }
+
+  playerEpochs.value[index] += 1;
+  await nextTick();
+  setupPlayer(index);
+  return players.value[index];
+}
+
+const clickPlayVideo = () => {
+  if (!props.isActive) return;
+  getActivePlayer()?.play();
+};
+
+const loadVideo = async (filePath: string) => {
+  if (!filePath) return;
+  clearLoadingOverlayTimer();
+  clearPlaybackDeadlineTimer();
+  const currentLoadId = ++currentLoadingId;
+  
+  // IMMEDIATELY set loading state to block volumechange feedbacks from old players
+  hasError.value = false;
+  isPlaying.value = false;
+  isReplaying.value = false;
+  resetLoadingUi();
+  isLoading.value = true;
+
+  const nextUpIndex = activeVideo.value ^ 1;
+  const cancelPromises = activeBackendRequestIds.map((requestId, index) => {
+    if (requestId === null) return Promise.resolve();
+    activeBackendRequestIds[index] = null;
+    return cancelVideoPrepare(getPlayerId(index), requestId).catch((error) => {
+      console.warn('[Video] Failed to cancel previous prepare task:', error);
+    });
+  });
+  await Promise.allSettled(cancelPromises);
+
+  if (currentLoadId !== currentLoadingId) return;
+  if (props.originalUnavailable) {
+    getActivePlayer()?.pause();
+    resetLoadingUi();
+    return;
+  }
+
+  const currentPlayer = getActivePlayer();
+  if (currentPlayer) {
+    currentPlayer.pause();
+    currentPlayer.reset();
+  }
+
+  // MPEG program streams can wedge the macOS WebKit media process. Never
+  // assign these files to a WebView video element or start compatibility
+  // processing; fail before creating a backend/player request.
+  if (isWebViewVideoPlaybackDisabled(filePath)) {
+    resetLoadingUi();
+    hasError.value = true;
+    errorMessage.value = getPrepareErrorMessage('video_requires_external_player');
+    return;
+  }
+
+  const playerId = getPlayerId(nextUpIndex);
+  const backendRequestId = ++nextBackendRequestId;
+  activeBackendRequestIds[nextUpIndex] = backendRequestId;
+
+  const player = await recreatePlayer(nextUpIndex);
+  if (!player || currentLoadId !== currentLoadingId) return;
+
+  playbackDeadlineTimer = setTimeout(() => {
+    if (currentLoadId !== currentLoadingId) return;
+    currentLoadingId++;
+    loadAttemptCleanups[nextUpIndex]?.();
+    loadAttemptCleanups[nextUpIndex] = null;
+    player.pause();
+    player.reset();
+    activeBackendRequestIds[nextUpIndex] = null;
+    void cancelVideoPrepare(playerId, backendRequestId);
+    resetLoadingUi();
+    hasError.value = true;
+    errorMessage.value = getFallbackErrorMessage();
+  }, PLAYBACK_DEADLINE_MS);
+
+  loadAttemptCleanups[nextUpIndex]?.();
+  if (currentLoadId !== currentLoadingId) return;
+
+  // Sync audio state IMMEDIATELY so the UI reflects the user settings during loading
+  player.muted(config.video.muted);
+  player.volume(config.video.volume);
+  
+  loadingOverlayTimer = setTimeout(() => {
+    loadingOverlayTimer = null;
+    if (currentLoadId === currentLoadingId && !hasError.value && activeVideo.value !== nextUpIndex) {
+      showSpinner.value = true;
+    }
+  }, LOADING_OVERLAY_DELAY_MS);
+
+  const handleSuccessfulLoad = () => {
+    if (currentLoadId !== currentLoadingId) return;
+    clearPlaybackDeadlineTimer();
+    activeVideo.value = nextUpIndex;
+    activeBackendRequestIds[nextUpIndex] = null;
+    hasError.value = false;
+    resetLoadingUi();
+
+    // Pause the other player
+    const prevPlayer = players.value[nextUpIndex ^ 1];
+    if (prevPlayer) {
+      prevPlayer.pause();
+      prevPlayer.reset();
+    }
+
+    noTransition.value = true;
+    isFit.value = props.isZoomFit;
+    rotate.value = props.rotate;
+    viewportOffset.value = { x: 0, y: 0 };
+    if (!applyViewportState(props.viewportState)) {
+      updateTransform({ resetRotation: true, recalcScale: true });
+    }
+
+    setTimeout(() => {
+      noTransition.value = false;
+    }, 100);
+
+    if (props.isActive && (config.settings.autoPlayVideo || props.isSlideShow)) {
+      // Restore user audio settings right before playback starts
+      player.volume(config.video.volume);
+      player.muted(config.video.muted);
+      player.play().catch(() => {});
+    } else {
+      player.volume(config.video.volume);
+      player.muted(config.video.muted);
+    }
+  };
+
+  const loadPrepared = async (force: VideoPrepareMode = null) => {
+    startCompatibilityProcessing(currentLoadId);
+    try {
+      const result = await prepareVideo(filePath, playerId, force, backendRequestId);
+      if (currentLoadId !== currentLoadingId) return;
+      const playbackSrc = isLinux ? result.url : getAssetSrc(result.url);
+
+      player.reset();
+      player.src({
+        src: playbackSrc,
+        type: result.action === 'remux' ? 'video/mp4' : (result.url.endsWith('.webm') ? 'video/webm' : 'video/mp4'),
+      });
+
+      let preparedAttemptSettled = false;
+      const cleanupLoadAttempt = () => {
+        player.off('loadeddata', onLoaded);
+        player.off('error', onError);
+        if (loadAttemptCleanups[nextUpIndex] === cleanupLoadAttempt) {
+          loadAttemptCleanups[nextUpIndex] = null;
+        }
+      };
+
+      const onLoaded = () => {
+        if (preparedAttemptSettled) return;
+        preparedAttemptSettled = true;
+        cleanupLoadAttempt();
+        handleSuccessfulLoad();
+      };
+
+      const onError = () => {
+        if (preparedAttemptSettled) return;
+        preparedAttemptSettled = true;
+        cleanupLoadAttempt();
+        if (currentLoadId !== currentLoadingId) return;
+        const err = player.error();
+
+        if (force !== 'process' && err?.code !== 1) {
+          console.warn('[Video] Compatible output failed playback, forcing transcode...');
+          loadPrepared('process');
+          return;
+        }
+
+        resetLoadingUi();
+        if (err?.code === 1) {
+          hasError.value = true;
+          errorMessage.value = getFallbackErrorMessage();
+        } else {
+          handlePlayerError(player);
+        }
+      };
+
+      player.one('loadeddata', onLoaded);
+      player.one('error', onError);
+      loadAttemptCleanups[nextUpIndex]?.();
+      loadAttemptCleanups[nextUpIndex] = cleanupLoadAttempt;
+      player.load();
+    } catch (e) {
+      if (currentLoadId !== currentLoadingId) return;
+      activeBackendRequestIds[nextUpIndex] = null;
+      resetLoadingUi();
+      console.error('[Video] Prepare failed:', e);
+      hasError.value = true;
+      errorMessage.value = getPrepareErrorMessage(e);
+    }
+  };
+
+  const loadDirect = (type: string | null) => {
+    resetCompatibilityProcessing();
+    player.reset();
+    const source = type
+      ? { src: getAssetSrc(filePath), type }
+      : { src: getAssetSrc(filePath) };
+    player.src(source);
+
+    let directLoadTimer: ReturnType<typeof setTimeout> | null = null;
+    let directAttemptSettled = false;
+    const cleanupDirectAttempt = () => {
+      if (directLoadTimer) {
+        clearTimeout(directLoadTimer);
+        directLoadTimer = null;
+      }
+      player.off('loadeddata', onLoaded);
+      player.off('error', onError);
+      if (loadAttemptCleanups[nextUpIndex] === cleanupDirectAttempt) {
+        loadAttemptCleanups[nextUpIndex] = null;
+      }
+    };
+
+    const fallbackToPrepared = () => {
+      if (directAttemptSettled) return;
+      directAttemptSettled = true;
+      cleanupDirectAttempt();
+      if (currentLoadId !== currentLoadingId) return;
+      player.reset();
+      console.warn('[Video] Direct playback failed, preparing a compatible source...');
+      loadPrepared('compatible');
+    };
+
+    const onLoaded = () => {
+      if (directAttemptSettled) return;
+      if (!player.videoWidth() || !player.videoHeight()) {
+        fallbackToPrepared();
+        return;
+      }
+      directAttemptSettled = true;
+      cleanupDirectAttempt();
+      handleSuccessfulLoad();
+    };
+
+    const onError = () => {
+      if (directAttemptSettled) return;
+      if (currentLoadId !== currentLoadingId) {
+        directAttemptSettled = true;
+        cleanupDirectAttempt();
+        return;
+      }
+
+      fallbackToPrepared();
+    };
+
+    player.one('loadeddata', onLoaded);
+    player.one('error', onError);
+    loadAttemptCleanups[nextUpIndex]?.();
+    loadAttemptCleanups[nextUpIndex] = cleanupDirectAttempt;
+    directLoadTimer = setTimeout(fallbackToPrepared, DIRECT_PLAYBACK_TIMEOUT_MS);
+    player.load();
+  };
+
+  // Matroska files can leave WebView media pipelines pending without either
+  // loadeddata or error. Start bounded compatibility processing immediately
+  // instead of spending part of the deadline here.
+  if (shouldBypassDirectPlayback(filePath)) {
+    loadPrepared('compatible');
+  } else {
+    // Try the actual WebView first for other containers. canPlayType() is only a
+    // hint, while a real load also covers platform codec packs and WebView support.
+    loadDirect(getDirectPlaybackType(filePath));
+  }
+};
+
+function getFallbackErrorMessage() {
+  const formatMsg = $t('video.errors.format');
+  if (canOpenExternalApp.value && externalVideoAppName.value) {
+    return `${formatMsg}\n${$t('video.errors.use_external_with_app', { app: externalVideoAppName.value })}`;
+  }
+  if (canOpenExternalApp.value) {
+    return `${formatMsg}\n${$t('video.errors.use_external_generic')}`;
+  }
+  return `${formatMsg}\n${$t('video.errors.use_external')}`;
+}
+
+function getPrepareErrorMessage(error: unknown) {
+  if (String(error).includes('video_requires_external_player')) {
+    const reason = isWebViewVideoPlaybackDisabled(props.filePath || '')
+      ? $t('video.errors.unsafe_webview')
+      : $t('video.errors.external_player_recommended');
+    if (canOpenExternalApp.value && externalVideoAppName.value) {
+      return `${reason}\n${$t('video.errors.use_external_with_app', { app: externalVideoAppName.value })}`;
+    }
+    if (canOpenExternalApp.value) {
+      return `${reason}\n${$t('video.errors.use_external_generic')}`;
+    }
+    return `${reason}\n${$t('video.errors.use_external')}`;
+  }
+  return getFallbackErrorMessage();
+}
+
+function handlePlayerError(playerInstance: ReturnType<typeof videojs>) {
+  const err = playerInstance.error();
+  
+  // AbortError is frequently thrown locally when the stream is reset/cleared during transitions. 
+  // Ignoring it prevents spurious error overlays.
+  if (err && err.code === 1) {
+    return;
+  }
+
+  let msg = $t('video.errors.unknown');
+  
+  if (err) {
+    switch (err.code) {
+      case 1: msg = $t('video.errors.aborted'); break;
+      case 2: msg = $t('video.errors.network'); break;
+      case 3: msg = $t('video.errors.decode'); break;
+      case 4: msg = getFallbackErrorMessage(); break;
+    }
+  } else {
+    msg = $t('video.errors.playback_failed') || 'Playback failed';
+  }
+
+  hasError.value = true;
+  errorMessage.value = msg;
+  isPlaying.value = false;
+  isReplaying.value = false;
+}
+
+let resizeObserver: ResizeObserver | null = null;
+
+// Touchscreen pinch zoom state (two-finger gesture)
+const activeTouchPointers = new Map<number, { x: number; y: number }>();
+let pinchStartDistance = 0;
+let pinchStartScale = 1;
+let isPinching = false;
+
+function handlePinchPointerDown(event: PointerEvent) {
+  if (event.pointerType !== 'touch') return;
+  activeTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (activeTouchPointers.size === 2) {
+    const pts = Array.from(activeTouchPointers.values());
+    pinchStartDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    pinchStartScale = scale.value;
+    isPinching = true;
+    // Suppress CSS transition so video tracks fingers in real time.
+    noTransition.value = true;
+  }
+}
+
+function handlePinchPointerMove(event: PointerEvent) {
+  if (event.pointerType !== 'touch' || !isPinching) return;
+  if (!activeTouchPointers.has(event.pointerId)) return;
+  activeTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (activeTouchPointers.size !== 2 || pinchStartDistance <= 0) return;
+  event.preventDefault();
+  const pts = Array.from(activeTouchPointers.values());
+  const distance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  if (distance < 1) return;
+  const newScale = Math.max(0.1, Math.min(10, pinchStartScale * (distance / pinchStartDistance)));
+  scale.value = newScale;
+  isFit.value = false;
+  updateTransform();
+}
+
+function handlePinchPointerEnd(event: PointerEvent) {
+  if (event.pointerType !== 'touch') return;
+  activeTouchPointers.delete(event.pointerId);
+  if (activeTouchPointers.size < 2) {
+    pinchStartDistance = 0;
+  }
+  if (activeTouchPointers.size === 0) {
+    isPinching = false;
+    requestAnimationFrame(() => {
+      noTransition.value = false;
+    });
+  }
+}
+
+function handleGlobalPinchWheel(event: WheelEvent) {
+  if (!event.ctrlKey || !props.isActive) return;
+  const container = getTransformContainer(getActivePlayer());
+  if (!container) return;
+  const rect = container.getBoundingClientRect();
+  if (
+    event.clientX < rect.left || event.clientX > rect.right ||
+    event.clientY < rect.top || event.clientY > rect.bottom
+  ) return;
+  event.preventDefault();
+  event.stopPropagation();
+  noTransition.value = true;
+  applyZoomFromWheel(event);
+  requestAnimationFrame(() => { noTransition.value = false; });
+}
+
+// Browser-matching exp formula for touchpad pinch (small deltaY); coarser fixed
+// step for Ctrl+mouse-wheel (deltaY ~100 per notch).
+function applyZoomFromWheel(event: WheelEvent) {
+  if (event.deltaY === 0) return;
+  let newScale: number;
+  const isPinch = event.ctrlKey && event.deltaMode === 0 && Math.abs(event.deltaY) < 50;
+  if (isPinch) {
+    newScale = Math.max(0.1, Math.min(10, scale.value * Math.exp(-event.deltaY / 96)));
+  } else {
+    const zoomFactor = 0.1;
+    newScale = event.deltaY < 0
+      ? Math.min(scale.value * (1 + zoomFactor), 10)
+      : Math.max(scale.value * (1 - zoomFactor), 0.1);
+  }
+  zoomAtCursor(event, newScale);
+}
+
+function zoomAtCursor(event: WheelEvent, newScale: number) {
+  const container = getTransformContainer(getActivePlayer());
+  if (container) {
+    const rect = container.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      // Convert the cursor to layout coordinates, accounting for UI scaling.
+      const x = (event.clientX - rect.left) * container.clientWidth / rect.width - container.clientWidth / 2;
+      const y = (event.clientY - rect.top) * container.clientHeight / rect.height - container.clientHeight / 2;
+      zoomAtPosition(x, y, newScale);
+      return;
+    }
+  }
+  zoomAtPosition(0, 0, newScale);
+}
+
+// Coordinates are relative to the viewport center; buttons use (0, 0).
+function zoomAtPosition(x: number, y: number, newScale: number) {
+  const ratio = newScale / scale.value;
+  viewportOffset.value = {
+    x: x - (x - viewportOffset.value.x) * ratio,
+    y: y - (y - viewportOffset.value.y) * ratio,
+  };
+  scale.value = newScale;
+  isFit.value = false;
+  updateTransform();
+}
+
+onMounted(async () => {
+  await nextTick();
+  setupPlayer(0);
+  setupPlayer(1);
+  if (props.filePath) {
+    activeVideo.value = 0;
+    loadVideo(props.filePath);
+  }
+
+  if (videoContainer.value) {
+    resizeObserver = new ResizeObserver(() => {
+      updateTransform({ recalcScale: isFit.value });
+    });
+    resizeObserver.observe(videoContainer.value);
+    const el = videoContainer.value as HTMLElement;
+    el.addEventListener('pointerdown', handlePinchPointerDown);
+    el.addEventListener('pointermove', handlePinchPointerMove, { passive: false });
+    el.addEventListener('pointerup', handlePinchPointerEnd);
+    el.addEventListener('pointercancel', handlePinchPointerEnd);
+    el.addEventListener('pointerleave', handlePinchPointerEnd);
+  }
+  // Global capture-phase fallback for touchpad pinch (see Image.vue).
+  window.addEventListener('wheel', handleGlobalPinchWheel, { capture: true, passive: false });
+});
+
+onBeforeUnmount(() => {
+  currentLoadingId++;
+  resetLoadingUi();
+  resizeObserver?.disconnect();
+  if (videoContainer.value) {
+    const el = videoContainer.value as HTMLElement;
+    el.removeEventListener('pointerdown', handlePinchPointerDown);
+    el.removeEventListener('pointermove', handlePinchPointerMove);
+    el.removeEventListener('pointerup', handlePinchPointerEnd);
+    el.removeEventListener('pointercancel', handlePinchPointerEnd);
+    el.removeEventListener('pointerleave', handlePinchPointerEnd);
+  }
+  window.removeEventListener('wheel', handleGlobalPinchWheel, { capture: true });
+  players.value.forEach((p) => {
+    if (p) {
+      p.off();
+      setTimeout(() => {
+        try { p.dispose(); } catch (e) {}
+      }, 0);
+    }
+  });
+  loadAttemptCleanups.forEach((cleanup) => cleanup?.());
+  players.value = [null, null];
+  activeBackendRequestIds.forEach((requestId, index) => {
+    if (requestId === null) return;
+    activeBackendRequestIds[index] = null;
+    void cancelVideoPrepare(getPlayerId(index), requestId);
+  });
+});
+
+watch(() => [props.filePath, props.originalUnavailable], ([newPath]) => {
+  if (newPath) loadVideo(String(newPath));
+});
+
+watch(() => props.rotate, (val) => {
+  rotate.value = val;
+  updateTransform();
+});
+
+watch(() => props.isZoomFit, (val) => {
+  isFit.value = val;
+  viewportOffset.value = { x: 0, y: 0 };
+  updateTransform({ recalcScale: true });
+});
+
+watch(() => props.viewportState, (viewport) => {
+  if (viewport) {
+    void nextTick(() => applyViewportState(viewport, true));
+  }
+});
+
+watch(() => props.isSlideShow, (newVal) => {
+  if (newVal && props.isActive) {
+    const player = getActivePlayer();
+    if (player && !isPlaying.value) {
+      player.play();
+    }
+  }
+});
+
+watch(() => props.isActive, (isActive) => {
+  const player = getActivePlayer();
+  if (!player) return;
+  if (!isActive) {
+    player.pause();
+    player.muted(true);
+    return;
+  }
+  player.volume(config.video.volume);
+  player.muted(config.video.muted);
+  if (props.playOnActivate && !isPlaying.value) {
+    // Live/Motion Photo hover starts a new preview, rather than resuming it.
+    player.currentTime(0);
+    player.play().catch(() => {});
+  }
+});
+
+const zoomIn = () => {
+  zoomAtPosition(0, 0, Math.min(scale.value * 2, 10));
+};
+const zoomOut = () => {
+  zoomAtPosition(0, 0, Math.max(scale.value / 2, 0.1));
+};
+const zoomActual = () => {
+  zoomAtPosition(0, 0, 1);
+};
+const rotateView = (delta = 90) => {
+  rotate.value += delta;
+  updateTransform();
+};
+const togglePlay = () => {
+  const player = getActivePlayer();
+  if (!player) return;
+  if (isPlaying.value) player.pause();
+  else player.play();
+};
+
+function getViewportState() {
+  return { scale: scale.value, isZoomFit: isFit.value, fileType: 2 };
+}
+
+function applyViewportState(
+  viewport: {
+    scale?: number;
+    isZoomFit?: boolean;
+    normX?: number;
+    normY?: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  },
+  silent = false,
+): boolean {
+  if (!viewport) return false;
+
+  const nextScale = Number(viewport.scale);
+  const hasScale = Number.isFinite(nextScale) && nextScale > 0;
+  const hasPosition = Number.isFinite(Number(viewport.normX)) || Number.isFinite(Number(viewport.normY));
+
+  if (typeof viewport.isZoomFit === 'boolean') {
+    isFit.value = viewport.isZoomFit;
+    if (viewport.isZoomFit && !hasScale) {
+      viewportOffset.value = { x: 0, y: 0 };
+      updateTransform({ recalcScale: true });
+      return true;
+    }
+  }
+
+  if (!hasScale) return false;
+
+  const player = getActivePlayer();
+  const videoWidth = player?.videoWidth();
+  const videoHeight = player?.videoHeight();
+  const transformContainer = getTransformContainer(player);
+  const containerWidth = transformContainer?.clientWidth;
+  const containerHeight = transformContainer?.clientHeight;
+  const sourceWidth = Number(viewport.sourceWidth);
+  const sourceHeight = Number(viewport.sourceHeight);
+  const sourceScale = sourceWidth > 0 && videoWidth
+    ? sourceWidth / videoWidth
+    : (sourceHeight > 0 && videoHeight ? sourceHeight / videoHeight : 1);
+
+  scale.value = Math.max(0.1, Math.min(10, nextScale * sourceScale));
+  if (typeof viewport.isZoomFit !== 'boolean') {
+    isFit.value = false;
+  }
+
+  if (hasPosition && videoWidth && videoHeight && containerWidth && containerHeight) {
+    const isRotated = rotate.value % 180 !== 0;
+    const width = (isRotated ? videoHeight : videoWidth) * scale.value;
+    const height = (isRotated ? videoWidth : videoHeight) * scale.value;
+    const normX = Math.min(Math.max(Number(viewport.normX ?? 0.5), 0), 1);
+    const normY = Math.min(Math.max(Number(viewport.normY ?? 0.5), 0), 1);
+    const localX = (normX - 0.5) * width;
+    const localY = (normY - 0.5) * height;
+    viewportOffset.value = {
+      x: width > containerWidth ? -localX : 0,
+      y: height > containerHeight ? -localY : 0,
+    };
+  } else {
+    viewportOffset.value = { x: 0, y: 0 };
+  }
+
+  if (silent) {
+    noTransition.value = true;
+    updateTransform();
+    requestAnimationFrame(() => {
+      noTransition.value = false;
+    });
+  } else {
+    updateTransform();
+  }
+  return true;
+}
+
+defineExpose({
+  zoomIn,
+  zoomOut,
+  zoomActual,
+  rotateView,
+  togglePlay,
+  getViewportState,
+  applyViewportState,
+  pause: () => {
+    players.value.forEach((p) => p?.pause());
+  },
+});
+
+function handleWheel(event: WheelEvent) {
+  event.preventDefault();
+
+  // Touchpad pinch (and Ctrl+wheel) arrives as a wheel event with ctrlKey=true.
+  // Treat it as a direct zoom, bypassing the swipe/nav gesture-detection path.
+  if (event.ctrlKey) {
+    applyZoomFromWheel(event);
+    return;
+  }
+
+  if (event.deltaX !== 0) {
+    isTouchpadDevice = true;
+  }
+
+  if (gestureResetTimeout) clearTimeout(gestureResetTimeout);
+  gestureResetTimeout = setTimeout(() => {
+    resetSwipeState();
+  }, 150);
+
+  const isTouchPad = isTouchpadDevice;
+
+  if (isTouchPad) {
+    if (hasNavigatedThisGesture) {
+      const speedIncreased = Math.abs(event.deltaX) > Math.abs(lastDeltaX) + 5;
+      if (!speedIncreased) {
+        lastDeltaX = event.deltaX;
+        return;
+      }
+      hasNavigatedThisGesture = false;
+      horizontalDeltaAccumulator = 0;
+    }
+    lastDeltaX = event.deltaX;
+
+    if (gestureType.value === 'none') {
+      horizontalDeltaAccumulator += event.deltaX;
+      verticalDeltaAccumulator += event.deltaY;
+      const absX = Math.abs(horizontalDeltaAccumulator);
+      const absY = Math.abs(verticalDeltaAccumulator);
+      if (absX > GESTURE_LOCK_THRESHOLD || absY > GESTURE_LOCK_THRESHOLD) {
+        gestureType.value = absX > absY ? 'nav' : 'zoom';
+      }
+      return;
+    }
+
+    if (gestureType.value === 'nav') {
+      horizontalDeltaAccumulator += event.deltaX;
+      if (!hasNavigatedThisGesture && Math.abs(horizontalDeltaAccumulator) >= HORIZONTAL_NAV_THRESHOLD) {
+        const direction = horizontalDeltaAccumulator > 0 ? 'next' : 'prev';
+        navDirection.value = direction;
+        emit('message-from-video-viewer', { message: direction });
+        hasNavigatedThisGesture = true;
+        horizontalDeltaAccumulator = 0;
+        gestureType.value = 'none';
+      }
+      return;
+    }
+
+    if (gestureType.value === 'zoom' || Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+      const zoomFactor = 0.01;
+      const delta = -event.deltaY * zoomFactor;
+      zoomAtCursor(event, Math.max(0.1, Math.min(10, scale.value + delta)));
+    }
+  } else {
+    if (config.settings.mouseWheelMode === 0) {
+      if (event.ctrlKey) {
+        applyZoomFromWheel(event);
+      } else {
+        const direction = event.deltaY < 0 ? 'prev' : 'next';
+        emit('message-from-video-viewer', { message: direction });
+      }
+    } else {
+      applyZoomFromWheel(event);
+    }
+  }
+}
+</script>
+
+<style>
+.video-js {
+  width: 100% !important;
+  height: 100% !important;
+  background-color: transparent !important;
+  color: hsl(var(--bc)) !important;
+}
+.video-js video {
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  transition: transform 0.3s ease-out !important;
+}
+.video-js video.no-transition {
+  transition: none !important;
+}
+.video-js .vjs-control-bar {
+  background-color: hsl(var(--b2)) !important;
+}
+.video-js .vjs-big-play-button {
+  display: none !important;
+}
+.vjs-volume-panel {
+  position: relative !important;
+}
+.slide-next-enter-active,
+.slide-next-leave-active,
+.slide-prev-enter-active,
+.slide-prev-leave-active {
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.slide-next-enter-from { transform: translateX(100%); }
+.slide-next-leave-to { transform: translateX(-100%); }
+.slide-prev-enter-from { transform: translateX(-100%); }
+.slide-prev-leave-to { transform: translateX(100%); }
+.slide-in-enter-active,
+.slide-in-leave-active {
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.slide-in-enter-from { transform: translateX(100%); }
+.slide-in-leave-to { transform: translateX(-100%); }
+.loading-overlay-enter-active,
+.loading-overlay-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.loading-overlay-enter-from,
+.loading-overlay-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+</style>

@@ -1,0 +1,2292 @@
+import { setAlbumAccessibility } from '@/common/availability';
+import { invoke } from '@tauri-apps/api/core';
+import { locale } from '@tauri-apps/plugin-os';
+import { listen } from '@tauri-apps/api/event';
+import { config, libConfig } from '@/common/config';
+import { separator, localeComp, formatTimestamp } from '@/common/utils';
+import { getRawDisplayOptions } from './rawDisplay';
+
+export async function getSystemRegionLocale() {
+  // plugin-os reports language preferences, which can differ from date/time region.
+  try {
+    const region = await invoke('get_system_region_locale');
+    if (region) return region;
+  } catch (error) {
+    console.warn('Could not read system regional locale', error);
+  }
+  return locale();
+}
+
+// library
+
+// get app config (libraries list and current library)
+export async function getAppConfig() {
+  try {
+    const config = await invoke('get_app_config');
+    if (config) {
+      return config;
+    }
+  } catch (error) {
+    console.error('Failed to get app config:', error);
+  }
+  return null;
+}
+
+export async function getSupportedFormatExtensions() {
+  try {
+    return await invoke('get_supported_format_extensions');
+  } catch (error) {
+    console.error('Failed to get supported format extensions:', error);
+  }
+  return { image: [], raw: [], video: [], options: [] };
+}
+
+export async function getFfmpegBackedImageExtensions() {
+  try {
+    return await invoke('get_ffmpeg_backed_image_extensions');
+  } catch (error) {
+    console.error('Failed to get FFmpeg-backed image extensions:', error);
+  }
+  return [];
+}
+
+// set last selected item index
+export async function setLastSelectedItemIndex(index) {
+  try {
+    await invoke('set_last_selected_item_index', { index });
+    return true;
+  } catch (error) {
+    console.error('Failed to set last selected item index:', error);
+  }
+  return false;
+}
+
+export async function getDbStorageDir() {
+  try {
+    return await invoke('get_db_storage_dir');
+  } catch (error) {
+    console.error('Failed to get DB storage dir:', error);
+  }
+  return null;
+}
+
+export async function isUsingCustomDbStorage() {
+  try {
+    return await invoke('is_using_custom_db_storage');
+  } catch (error) {
+    console.error('Failed to check custom DB storage:', error);
+  }
+  return false;
+}
+
+export async function changeDbStorageDir(newDir) {
+  try {
+    return await invoke('change_db_storage_dir', { newDir });
+  } catch (error) {
+    console.error('Failed to change DB storage dir:', error);
+    throw error;
+  }
+}
+
+export async function resetDbStorageDir() {
+  try {
+    return await invoke('reset_db_storage_dir');
+  } catch (error) {
+    console.error('Failed to reset DB storage dir:', error);
+    throw error;
+  }
+}
+
+// backup / restore
+
+export async function getDbStorageInfo() {
+  try {
+    return await invoke('get_db_storage_info');
+  } catch (error) {
+    console.error('Failed to get DB storage info:', error);
+  }
+  return [];
+}
+
+export async function backupDatabases(libraryIds, destPath) {
+  try {
+    return await invoke('backup_databases', { libraryIds, destPath });
+  } catch (error) {
+    console.error('Failed to backup databases:', error);
+    throw error;
+  }
+}
+
+export async function parseBackupFile(path) {
+  try {
+    return await invoke('parse_backup_file', { path });
+  } catch (error) {
+    console.error('Failed to parse backup file:', error);
+    throw error;
+  }
+}
+
+export async function restoreDatabases(backupPath, selections) {
+  try {
+    return await invoke('restore_databases', { backupPath, selections });
+  } catch (error) {
+    console.error('Failed to restore databases:', error);
+    throw error;
+  }
+}
+
+// add a new library
+export async function addLibrary(name) {
+  try {
+    const library = await invoke('add_library', { name });
+    if (library) {
+      return library;
+    }
+  } catch (error) {
+    console.error('Failed to add library:', error);
+    throw error;
+  }
+  return null;
+}
+
+// edit library name
+export async function editLibrary(id, name) {
+  try {
+    await invoke('edit_library', { id, name });
+    return true;
+  } catch (error) {
+    console.error('Failed to edit library:', error);
+    throw error;
+  }
+}
+
+// remove a library (also deletes the database file)
+export async function removeLibrary(id) {
+  try {
+    await invoke('remove_library', { id });
+    return true;
+  } catch (error) {
+    console.error('Failed to remove library:', error);
+    throw error;
+  }
+}
+
+// hide a library
+export async function hideLibrary(id, hidden) {
+  try {
+    await invoke('hide_library', { id, hidden });
+    return true;
+  } catch (error) {
+    console.error('Failed to hide library:', error);
+    throw error;
+  }
+}
+
+// reorder libraries
+export async function reorderLibraries(ids) {
+  try {
+    await invoke('reorder_libraries', { ids });
+    return true;
+  } catch (error) {
+    console.error('Failed to reorder libraries:', error);
+    throw error;
+  }
+}
+
+// switch to a different library
+export async function switchLibrary(id) {
+  try {
+    await invoke('switch_library', { id });
+    return true;
+  } catch (error) {
+    console.error('Failed to switch library:', error);
+    throw error;
+  }
+}
+
+// get library info
+export async function getLibraryInfo(id) {
+  try {
+    const info = await invoke('get_library_info', { id });
+    if (info) {
+      return info;
+    }
+  } catch (error) {
+    console.error('Failed to get library info:', error);
+  }
+  return null;
+}
+
+// save library state
+export async function saveLibraryState(id, state) {
+  try {
+    await invoke('save_library_state', { id, state });
+    return true;
+  } catch (error) {
+    console.error('Failed to save library state:', error);
+  }
+  return false;
+}
+
+// get library state
+export async function getLibraryState(id) {
+  try {
+    const state = await invoke('get_library_state', { id });
+    if (state) {
+      return state;
+    }
+  } catch (error) {
+    console.error('Failed to get library state:', error);
+  }
+  return null;
+}
+
+// get current library state
+export async function getCurrentLibraryState() {
+  try {
+    const state = await invoke('get_current_library_state');
+    if (state) {
+      return state;
+    }
+  } catch (error) {
+    console.error('Failed to get current library state:', error);
+  }
+  return null;
+}
+
+export async function getSmartQueryCountAndSum(params) {
+  try {
+    return await invoke('get_smart_query_count_and_sum', { params });
+  } catch (error) {
+    console.error('Failed to get smart query count and sum:', error);
+  }
+  return null;
+}
+
+export async function getSmartQueryTimeLine(params) {
+  try {
+    return await invoke('get_smart_query_time_line', { params });
+  } catch (error) {
+    console.error('Failed to get smart query timeline:', error);
+  }
+  return null;
+}
+
+export async function getSmartQueryFiles(params, offset, limit) {
+  try {
+    return await invoke('get_smart_query_files', { params, offset, limit });
+  } catch (error) {
+    console.error('Failed to get smart query files:', error);
+  }
+  return null;
+}
+
+export async function getSmartGroupedQueryRows(params, offset, limit) {
+  try {
+    return await invoke('get_smart_grouped_query_rows', { params, offset, limit });
+  } catch (error) {
+    console.error('Failed to get smart grouped query rows:', error);
+  }
+  return null;
+}
+
+export async function getSmartGroupFileIds(params, groupId) {
+  try {
+    return await invoke('get_smart_group_file_ids', { params, groupId });
+  } catch (error) {
+    console.error('Failed to get smart group file ids:', error);
+  }
+  return null;
+}
+
+export async function getSmartQueryFileIds(params) {
+  try {
+    return await invoke('get_smart_query_file_ids', { params });
+  } catch (error) {
+    console.error('Failed to get smart query file ids:', error);
+  }
+  return null;
+}
+
+export async function getSmartQueryFilePosition(params, fileId) {
+  try {
+    return await invoke('get_smart_query_file_position', { params, fileId });
+  } catch (error) {
+    console.error('Failed to get smart query file position:', error);
+  }
+  return null;
+}
+
+// albums
+
+// get all albums
+export async function getAllAlbums(refreshAccessibility = false) {
+  const libraryId = libConfig._libraryId;
+  try {
+    let albums = [];
+    const fetchedAlbums = await invoke('get_all_albums', { refreshAccessibility });
+    if (libraryId !== libConfig._libraryId) return null;
+    for (const album of fetchedAlbums || []) setAlbumAccessibility(album.id, album.is_accessible);
+    console.log('get_all_albums', fetchedAlbums);
+    if (fetchedAlbums) {
+      albums = fetchedAlbums.map(album => ({
+        ...album, 
+        is_expanded: false,
+        children: null,
+      }));
+
+       // get album's favorite status
+       for (let i = 0; i < albums.length; i++) {
+        const album = albums[i];
+        album.is_favorite = await getFolderFavorite(album.path);
+        album.is_excluded_from_search = await getFolderSearchExcluded(album.path);
+      }
+
+      return albums;
+    } 
+  } catch (error) {
+    console.error('getAlbums...', error);
+  }
+  return null;
+};
+
+export async function getAllAlbumFolders() {
+  try {
+    return await invoke('get_all_album_folders');
+  } catch (error) {
+    console.error('Failed to get album folders:', error);
+  }
+  return [];
+}
+
+export async function listAlbums() {
+  try {
+    return await invoke('get_all_albums', { refreshAccessibility: false });
+  } catch (error) {
+    console.error('Failed to list albums:', error);
+  }
+  return [];
+};
+
+// get one album by id
+export async function getAlbum(albumId) {
+  if(!albumId) {
+    return null;
+  }
+  try {
+    const album = await invoke('get_album', { albumId });
+    console.log('get_album', album);
+    if (album) {
+      return album;
+    }
+  } catch (error) {
+    console.error('getAlbum...', error);
+  }
+  return null;
+}
+
+export async function checkAlbumAccessibility(albumId) {
+  const libraryId = libConfig._libraryId;
+  try {
+    const available = Boolean(await invoke('check_album_accessibility', { albumId }));
+    if (libraryId === libConfig._libraryId) setAlbumAccessibility(albumId, available);
+    return available;
+  } catch (error) {
+    console.error('checkAlbumAccessibility error:', error);
+    return false;
+  }
+}
+
+// recount files for an album and return updated album
+export async function recountAlbum(albumId) {
+  if(!albumId) {
+    return null;
+  }
+  try {
+    return await invoke('recount_album', { albumId });
+  } catch (error) {
+    console.error('recountAlbum...', error);
+  }
+  return null;
+}
+
+export async function getAlbumVisibleCounts() {
+  try {
+    return await invoke('get_album_visible_counts');
+  } catch (error) {
+    console.error('getAlbumVisibleCounts:', error);
+  }
+  return null;
+}
+
+// add an album to db
+export async function addAlbum(folderPath, name, description, filters) {
+  if(!folderPath) {
+    return null;
+  }
+  try {
+    const { fileTypes, smallImageFilter, excludedFolders } = filters;
+    const newAlbum = await invoke('add_album', { folderPath, name, description, fileTypes, smallImageFilter, excludedFolders });
+    console.log('add_album', newAlbum);
+    if(newAlbum) {
+      return {
+        ...newAlbum,
+        is_expanded: false,
+        children: null,
+      };
+    };
+  } catch (error) {
+    console.log('Failed to add album:', error);
+  }
+  return null;
+}
+
+// edit an album's profile
+export async function editAlbum(albumId, newName, newDescription, filters) {
+  try {
+    const { fileTypes, smallImageFilter, excludedFolders } = filters;
+    const album = await invoke('edit_album', { id: albumId, name: newName, description: newDescription, fileTypes, smallImageFilter, excludedFolders });
+    console.log('edit_album', album);
+    if (album) {
+      return album;
+    }
+  } catch (error) {
+    console.log('Failed to edit album:', error);
+  }
+  return null;
+}
+
+// remove an album
+export async function removeAlbum(albumId) {
+  try {
+    const removedAlbum = await invoke('remove_album', { id: albumId });
+    console.log('remove_album', removedAlbum);
+    if (removedAlbum) {
+      return removedAlbum;
+    }
+  } catch (error) {
+    console.log('Failed to remove album:', error);
+  }
+  return null;
+}
+
+// open an external URL or deep link
+export async function openExternalUrl(url) {
+  try {
+    await invoke('open_external_url', { url });
+    return true;
+  } catch (error) {
+    console.error('Failed to open external URL:', error);
+    throw error;
+  }
+}
+
+export async function setDesktopWallpaper(filePath, companionPath = null) {
+  return invoke('set_desktop_wallpaper', { filePath, companionPath });
+}
+
+// open a file with a specific external app
+export async function openFileWithApp(filePath, appPath) {
+  try {
+    await invoke('open_file_with_app', { filePath, appPath });
+    return true;
+  } catch (error) {
+    console.error('Failed to open file with app:', error);
+    throw error;
+  }
+}
+
+// open one or more files with a specific external app
+export async function openFilesWithApp(filePaths, appPath) {
+  try {
+    await invoke('open_files_with_app', { filePaths, appPath });
+    return true;
+  } catch (error) {
+    console.error('Failed to open files with app:', error);
+    throw error;
+  }
+}
+
+// get external app display name from platform metadata
+export async function getExternalAppDisplayName(appPath) {
+  try {
+    return await invoke('get_external_app_display_name', { appPath });
+  } catch (error) {
+    console.error('Failed to get external app display name:', error);
+    throw error;
+  }
+}
+
+export async function reorderAlbums(items) {
+  try {
+    return await invoke('reorder_albums', { items });
+  } catch (error) {
+    console.error('Failed to reorder albums:', error);
+    throw error;
+  }
+}
+
+// set album cover
+export async function setAlbumCover(albumId, fileId) {
+  try {
+    const result = await invoke('set_album_cover', { id: albumId, fileId });
+    if (result) {
+      return result;
+    }
+  } catch (error) {
+    console.log('Failed to set album cover:', error);
+  }
+  return null;
+}
+
+// folders
+
+// select a folder to an album
+// add a folder to db
+export async function selectFolder(albumId, folderPath) {
+  try {
+    const selectedFolder = await invoke('select_folder', { albumId, folderPath });
+    if(selectedFolder) {
+      return selectedFolder;
+    };
+  } catch (error) {
+    console.log('Failed to select folder:', error);
+  }
+  return null;
+}
+
+// fetch folder and build a FileNode
+export async function fetchFolder(path, isRecursive, sort = 0) {
+  try {
+    const folder = await invoke('fetch_folder', { path, isRecursive, sort });
+    if(folder) {
+      // get root folder status
+      folder.is_favorite = await getFolderFavorite(folder.path);
+      folder.is_excluded_from_search = await getFolderSearchExcluded(folder.path);
+      // get folder children's favorite status
+      for (let i = 0; i < folder.children.length; i++) {
+        const child = folder.children[i];
+        child.is_favorite = await getFolderFavorite(child.path);
+        child.is_excluded_from_search = await getFolderSearchExcluded(child.path);
+      }
+      console.log('fetchFolder:', folder);
+      return folder;
+    };
+  } catch (error) {
+    console.log('Failed to fetch folder:', error);
+  }
+  return null;
+}
+
+export async function isDirectoryAccessible(path) {
+  try {
+    return Boolean(await invoke('is_directory_accessible', { path }));
+  } catch (error) {
+    console.error('isDirectoryAccessible error:', error);
+    return false;
+  }
+}
+
+// expand the final folder path, return the final folder
+export async function expandFinalFolder(rootFolder, finalPath) {
+  let relativePath = finalPath.replace(rootFolder.path, '');
+
+  const pathArray = relativePath.split(separator).filter(Boolean); // Split and remove empty strings
+  
+  // If there's no relative path, we're already at the target
+  if (pathArray.length === 0) {
+    return null;
+  }
+  
+  // rootFolder.children is now [folderObject], start from that folderObject
+  if (!rootFolder.children || rootFolder.children.length === 0) {
+    return null;
+  }
+  
+  // The first child is the root folder representation (e.g., folder1)
+  let currentFolder = rootFolder.children[0];
+  currentFolder.is_expanded = true;
+  
+  // Load its children if not already loaded
+  if (!currentFolder.children) {
+    const subFolders = await fetchFolder(currentFolder.path, false, config.settings.folderSort);
+    if (subFolders) {
+      currentFolder.children = subFolders.children;
+    }
+  }
+
+  for (let i = 0; i < pathArray.length; i++) {
+    if(currentFolder.children && currentFolder.children.length > 0) {
+      for (let child of currentFolder.children) {
+        if(child.name === pathArray[i]) {
+          if( i < pathArray.length - 1) {
+            child.is_expanded = true;
+            // fetch sub-folders for this child
+            const subFolders = await fetchFolder(child.path, false, config.settings.folderSort);
+            if(subFolders) {
+              child.children = subFolders.children;
+            }
+            currentFolder = child;
+            break;
+          } else {  // last folder
+            return child;
+          }
+        }
+      }
+    }
+  }
+}
+
+// recurse all files under the path(include all sub-folders), and count the number of files
+export async function countFolder(path, filters = {}) {
+  try {
+    const { fileTypes, smallImageFilter, excludedFolders } = filters;
+    const result = await invoke('count_folder', { path, fileTypes, smallImageFilter, excludedFolders });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.error('countFolder error:', error);
+  }
+  return null;
+}
+
+// create a folder
+export async function createFolder(path, folderName) {
+  try {
+    const newFolder = await invoke('create_folder', { path, folderName });
+    if(newFolder) {
+      return newFolder;
+    };
+  } catch (error) {
+    console.log('Failed to create folder:', error);
+  }
+  return null;
+}
+
+// rename a folder
+export async function renameFolder(folderPath, newFolderName) {
+  try {
+    const renamedFolder = await invoke('rename_folder', { folderPath, newFolderName });
+    if(renamedFolder) {
+      return renamedFolder;
+    };
+  } catch (error) {
+    console.log('Failed to rename folder:', error);
+  }
+  return null;
+}
+
+// move a folder, return new folder path
+export async function moveFolder(folderPath, newAlbumId, newFolderPath, conflictPolicy = 'keep_both') {
+  try {
+    const result = await invoke('move_folder', { folderPath, newAlbumId, newFolderPath, conflictPolicy });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to move folder:', error);
+  }
+  return null;
+}
+
+export async function moveFolderOutsideLibrary(folderPath, newFolderPath, conflictPolicy = 'keep_both') {
+  try {
+    return await invoke('move_folder_outside_library', { folderPath, newFolderPath, conflictPolicy });
+  } catch (error) {
+    console.log('Failed to move folder outside library:', error);
+  }
+  return null;
+}
+
+// copy a folder, return new folder path
+export async function copyFolder(folderPath, newFolderPath, newAlbumId = 0, conflictPolicy = 'keep_both') {
+  try {
+    const result = await invoke('copy_folder', { folderPath, newFolderPath, newAlbumId, conflictPolicy });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to copy folder:', error);
+  }
+  return null;
+}
+
+// delete a folder (move to trash)
+export async function deleteFolder(folderPath) {
+  try {
+    const result = await invoke('delete_folder', { folderPath });
+    return result;
+  } catch (error) {
+    console.log('Failed to delete folder:', error);
+    throw error;
+  }
+};
+
+// permanently delete a folder (skip trash)
+export async function deleteFolderPermanently(folderPath) {
+  try {
+    return await invoke('delete_folder_permanently', { folderPath });
+  } catch (error) {
+    console.error('Failed to permanently delete folder:', error);
+    throw error;
+  }
+};
+
+/// reveal a file or folder in file explorer (or finder)
+export async function revealPath(path) {
+  try {
+    const result = await invoke('reveal_path', { path });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.error('revealPath error:', error);
+  }
+  return null;
+};
+
+// files
+
+/// get query files count and sum
+export async function getQueryCountAndSum(params) {
+  try {
+    const result = await invoke('get_query_count_and_sum', { params });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.error('getQueryCountAndSum error:', error);
+  }
+  return null;
+}
+
+export async function getLibraryVisibleCounts() {
+  try { return await invoke('get_library_visible_counts'); }
+  catch (error) { console.error('getLibraryVisibleCounts:', error); }
+  return null;
+}
+
+/// get query timeline markers
+export async function getQueryTimeLine(params) {
+  try {
+    const result = await invoke('get_query_time_line', { params });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.error('getQueryTimeLine error:', error);
+  }
+  return null;
+}
+
+/// get query files from db (with pagination)
+export async function getQueryFiles(params, offset, limit) {
+  try {
+    const files = await invoke('get_query_files', { 
+      params,
+      offset, 
+      limit,
+    });
+    if(files) {
+      return files;
+    };
+  } catch (error) {
+    console.error('getQueryFiles error:', error);
+  }
+  return null;
+}
+
+export async function getFilesByIds(fileIds) {
+  try {
+    return await invoke('get_files_by_ids', { fileIds });
+  } catch (error) {
+    console.error('getFilesByIds error:', error);
+    return null;
+  }
+}
+
+/// get grouped query rows from db (row-based pagination: group headers + files)
+export async function getGroupedQueryRows(params, offset, limit) {
+  try {
+    const result = await invoke('get_grouped_query_rows', {
+      params,
+      offset,
+      limit,
+    });
+    if (result) {
+      return result;
+    }
+  } catch (error) {
+    console.error('getGroupedQueryRows error:', error);
+  }
+  return null;
+}
+
+export async function getGroupedFilePosition(params, fileId) {
+  try {
+    return await invoke('get_grouped_file_position', { params, fileId });
+  } catch (error) {
+    console.error('getGroupedFilePosition error:', error);
+    return undefined;
+  }
+}
+
+/// get all file ids in a grouped query group
+export async function getGroupFileIds(params, groupId) {
+  try {
+    const result = await invoke('get_group_file_ids', {
+      params,
+      groupId,
+    });
+    if (result) {
+      return result;
+    }
+  } catch (error) {
+    console.error('getGroupFileIds error:', error);
+  }
+  return null;
+}
+
+/// get all file ids in current query
+export async function getQueryFileIds(params) {
+  try {
+    const result = await invoke('get_query_file_ids', { params });
+    if (result) {
+      return result;
+    }
+  } catch (error) {
+    console.error('getQueryFileIds error:', error);
+  }
+  return null;
+}
+
+/// get file index(position) under current query result
+export async function getQueryFilePosition(params, fileId) {
+  try {
+    const pos = await invoke('get_query_file_position', {
+      params,
+      fileId,
+    });
+    if (pos === 0 || pos) {
+      return pos;
+    }
+  } catch (error) {
+    console.error('getQueryFilePosition error:', error);
+  }
+  return null;
+}
+
+// collection
+
+export async function listCollections() {
+  try {
+    return await invoke('list_collections');
+  } catch (error) {
+    console.error('Failed to list collections:', error);
+  }
+  return null;
+}
+
+export async function getCollectionCounts() {
+  try {
+    return await invoke('get_collection_counts');
+  } catch (error) {
+    console.error('Failed to get collection counts:', error);
+  }
+  return null;
+}
+
+export async function createCollection(name) {
+  try {
+    return await invoke('create_collection', { name });
+  } catch (error) {
+    console.error('Failed to create collection:', error);
+    throw error;
+  }
+}
+
+export async function renameCollection(id, name) {
+  try {
+    return await invoke('rename_collection', { id, name });
+  } catch (error) {
+    console.error('Failed to rename collection:', error);
+    throw error;
+  }
+}
+
+export async function deleteCollection(id) {
+  try {
+    return await invoke('delete_collection', { id });
+  } catch (error) {
+    console.error('Failed to delete collection:', error);
+    throw error;
+  }
+}
+
+export async function reorderCollections(items) {
+  try {
+    return await invoke('reorder_collections', { items });
+  } catch (error) {
+    console.error('Failed to reorder collections:', error);
+    throw error;
+  }
+}
+
+export async function addFilesToCollection(collectionId, fileIds) {
+  try {
+    return await invoke('add_files_to_collection', { collectionId, fileIds });
+  } catch (error) {
+    console.error('Failed to add files to collection:', error);
+    throw error;
+  }
+}
+
+export async function removeFilesFromCollection(collectionId, fileIds) {
+  try {
+    return await invoke('remove_files_from_collection', { collectionId, fileIds });
+  } catch (error) {
+    console.error('Failed to remove files from collection:', error);
+    throw error;
+  }
+}
+
+export async function getCollectionSelectionCounts(fileIds) {
+  try {
+    return await invoke('get_collection_selection_counts', { fileIds });
+  } catch (error) {
+    console.error('Failed to get collection selection counts:', error);
+    return null;
+  }
+}
+
+export async function clearCollection(collectionId) {
+  try {
+    return await invoke('clear_collection', { collectionId });
+  } catch (error) {
+    console.error('Failed to clear collection:', error);
+    throw error;
+  }
+}
+
+export async function getCollectionFileIds(collectionId) {
+  try {
+    return await invoke('get_collection_file_ids', { collectionId });
+  } catch (error) {
+    console.error('Failed to get collection file ids:', error);
+  }
+  return null;
+}
+
+export async function getFileCollections(fileId) {
+  try {
+    return await invoke('get_file_collections', { fileId });
+  } catch (error) {
+    console.error('Failed to get file collections:', error);
+  }
+  return [];
+}
+
+export async function getCollectionCountAndSum(collectionId, params) {
+  try {
+    return await invoke('get_collection_count_and_sum', { collectionId, params });
+  } catch (error) {
+    console.error('Failed to get collection count and sum:', error);
+  }
+  return null;
+}
+
+export async function getCollectionFiles(collectionId, params, offset, limit) {
+  try {
+    return await invoke('get_collection_files', { collectionId, params, offset, limit });
+  } catch (error) {
+    console.error('Failed to get collection files:', error);
+  }
+  return null;
+}
+
+/// get grouped rows from a collection query
+export async function getCollectionGroupedQueryRows(collectionId, params, offset, limit) {
+  try {
+    return await invoke('get_collection_grouped_query_rows', { collectionId, params, offset, limit });
+  } catch (error) {
+    console.error('Failed to get grouped collection rows:', error);
+  }
+  return null;
+}
+
+/// get all file ids in a collection query group
+export async function getCollectionGroupFileIds(collectionId, params, groupId) {
+  try {
+    return await invoke('get_collection_group_file_ids', { collectionId, params, groupId });
+  } catch (error) {
+    console.error('Failed to get collection group file ids:', error);
+  }
+  return null;
+}
+
+/// get all file ids in the current filtered and sorted collection query
+export async function getCollectionQueryFileIds(collectionId, params) {
+  try {
+    return await invoke('get_collection_query_file_ids', { collectionId, params });
+  } catch (error) {
+    console.error('Failed to get collection query file ids:', error);
+  }
+  return null;
+}
+
+// get all files from the folder (no pagination)
+export async function getFolderFiles(folderId, folderPath, fromDbOnly) {
+  try {
+    let result = await invoke('get_folder_files', { 
+      fileType: config.search.fileType,
+      sortType: config.search.sortType,
+      sortOrder: config.search.sortOrder,
+      folderId, 
+      folderPath,
+      fromDbOnly: fromDbOnly || false,
+    });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.error('getFolderFiles error:', error);
+  }
+  return [null, 0, 0];
+};
+
+// sync a single folder's mtime and DB records with the filesystem
+export async function syncAlbumFolderMtimes(albumId, folderId, folderPath) {
+  try {
+    const result = await invoke('sync_album_folder_mtimes', {
+      albumId,
+      folderId,
+      folderPath,
+      groupRawJpegPairs: Boolean(config.settings.groupRawJpegPairs),
+    });
+    if (result) {
+      return {
+        ...result,
+        current_folder_synced: Number(result.dirty_folder_count) > 0,
+      };
+    }
+  } catch (error) {
+    console.error('syncAlbumFolderMtimes error:', error);
+  }
+  return null;
+};
+
+export async function refreshAlbumSubfolders(albumId, folderPath) {
+  return await invoke('refresh_album_subfolders', { albumId, folderPath });
+}
+
+// get the thumbnail count of the folder
+export async function getFolderThumbCount(folderId) {
+  try {
+    let count = await invoke('get_folder_thumb_count', { 
+      fileType: config.search.fileType,
+      folderId, 
+    });
+    if(count) {
+      return count;
+    };
+  } catch (error) {
+    console.error('getFolderThumbCount error:', error);
+  }
+  return 0;
+}
+
+// edit an image
+// params: { sourceFilePath, destFilePath, outputFormat, orientation, flipHorizontal, flipVertical, rotate, crop, resize, quality, filter, brightness, contrast, blur }
+export async function editImage(params) {
+  try {
+    return await invoke('edit_image', { params });
+  } catch (error) {
+    console.log('Failed to edit image:', error);
+    return false;
+  }
+}
+
+// render a photo montage and save it (throws the backend error message)
+export async function renderMontage(params) {
+  return await invoke('render_montage', { params: { ...params, rawDisplayOptions: getRawDisplayOptions() } });
+}
+
+// copy an edited image to clipboard
+export async function copyEditedImage(params) {
+  try {
+    return await invoke('copy_edited_image', { params });
+  } catch (error) {
+    console.log('Failed to copy edited image to clipboard:', error);
+    return false;
+  }
+}
+
+// copy up to 10 content items to clipboard (pairs contain two files)
+export async function copyImages(filePaths) {
+  try {
+    return await invoke('copy_images', { filePaths });
+  } catch (error) {
+    console.error('Failed to copy files to clipboard:', error);
+    return 0;
+  }
+}
+
+// Preview and apply a batch rename in the captured library.
+export function previewBatchRename(libraryId, fileIds, options) {
+  return invoke('preview_batch_rename', { libraryId, fileIds, options });
+}
+
+export function batchRenameFiles(libraryId, fileIds, options, expected) {
+  return invoke('batch_rename_files', { libraryId, fileIds, options, expected });
+}
+
+// Rename a single file.
+export async function renameFile(fileId, filePath, newName) {
+  try {
+    const result = await invoke('rename_file', { fileId, filePath, newName });
+    if (result) {
+      return result;
+    }
+  } catch (error) {
+    console.log('Failed to rename file:', error);
+  }
+  return null;
+}
+
+// move a file
+export async function moveFile(fileId, filePath, newFolderId, newFolderPath, conflictPolicy = 'keep_both') {
+  try {
+    const result = await invoke('move_file', { fileId, filePath, newFolderId, newFolderPath, conflictPolicy });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to move file:', error);
+  }
+  return null;
+}
+
+export async function moveFileOutsideLibrary(fileId, filePath, newFolderPath, conflictPolicy = 'keep_both') {
+  try {
+    return await invoke('move_file_outside_library', { fileId, filePath, newFolderPath, conflictPolicy });
+  } catch (error) {
+    console.log('Failed to move file outside library:', error);
+  }
+  return null;
+}
+
+// copy a file
+export async function copyFile(filePath, newFolderPath, conflictPolicy = 'keep_both') {
+  try {
+    const result = await invoke('copy_file', { filePath, newFolderPath, conflictPolicy });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to copy file:', error);
+  }
+  return null;
+}
+
+// delete a file
+export async function deleteFile(fileId, filePath) {
+  try {
+    return await invoke('delete_file', { fileId, filePath });
+  } catch (error) {
+    console.error('deleteFile error:', error);
+    throw error;
+  }
+}
+
+// delete a file permanently
+export async function deleteFilePermanently(fileId, filePath) {
+  try {
+    return await invoke('delete_file_permanently', { fileId, filePath });
+  } catch (error) {
+    console.error('deleteFilePermanently error:', error);
+    throw error;
+  }
+}
+
+// delete a file from db
+export async function deleteDbFile(fileId) {
+  try {
+    return await invoke('delete_db_file', { fileId });
+  } catch (error) {
+    console.error('deleteDbFile error:', error);
+  }
+}
+
+export async function batchDeleteFiles(files, permanently = false) {
+  try {
+    return await invoke('batch_delete_files', { files, permanently });
+  } catch (error) {
+    console.error('batchDeleteFiles error:', error);
+    throw error;
+  }
+}
+
+// edit file comment
+export async function editFileComment(fileId, comment) {
+  try {
+    const result = await invoke('edit_file_comment', { fileId, comment });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to edit file comment:', error);
+  }
+  return null;
+}
+
+// get file thumb
+export async function getFileThumb(fileId, filePath, fileType, orientation, thumbnailSize, forceRegenerate, thumbnailSeekPercent = null, albumId = 0) {
+  try {
+    const result = await invoke('get_file_thumb', { fileId, filePath, fileType, orientation, thumbnailSize, rawDisplayOptions: getRawDisplayOptions(), forceRegenerate, thumbnailSeekPercent, albumId });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to get file thumb:', error);
+  }
+  return null;
+}
+
+export async function cleanUnusedThumbnailCache(libraryId = null) {
+  try {
+    return await invoke('clean_unused_thumbnail_cache', { libraryId });
+  } catch (error) {
+    console.error('Failed to clean unused thumbnail cache:', error);
+    throw error;
+  }
+}
+
+
+export async function getFileThumbById(fileId, thumbnailSize, forceRegenerate = false) {
+  try {
+    const result = await invoke('get_file_thumb_by_id', { fileId, thumbnailSize, rawDisplayOptions: getRawDisplayOptions(), forceRegenerate });
+    if (result) {
+      return result;
+    }
+  } catch (error) {
+    console.log('Failed to get file thumb by id:', error);
+  }
+  return null;
+}
+
+export async function getFileThumbs(files, thumbnailSize, forceRegenerate = false, trustCached = false) {
+  try {
+    return await invoke('get_file_thumbs', { files, thumbnailSize, rawDisplayOptions: getRawDisplayOptions(), forceRegenerate, trustCached });
+  } catch (error) {
+    console.log('Failed to get file thumbs:', error);
+  }
+  return [];
+}
+
+// get file info
+export async function getFileInfo(fileId) {
+  try {
+    const result = await invoke('get_file_info', { fileId });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to get file info:', error);
+  }
+  return null;
+}
+
+// extract the embedded MP4 of an Android Motion Photo and return its cache path
+export async function getMotionPhotoVideoPath(fileId) {
+  return invoke('prepare_motion_photo_video', { fileId });
+}
+
+// update file info
+export async function updateFileInfo(fileId, filePath) {
+  try {
+    const result = await invoke("update_file_info", { fileId, filePath });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to update file info:', error);
+  }
+  return null;
+}
+
+// refresh a file's info from disk; returns { file, size_delta, skipped }
+export async function refreshFileInfo(libraryId, fileId) {
+  try {
+    return await invoke('refresh_selected_file_info', { libraryId, fileId });
+  } catch (error) {
+    console.log('Failed to refresh file info:', error);
+  }
+  return null;
+}
+
+export async function importFile(filePath, folderId, folderPath, throwOnError = false, libraryId = libConfig._libraryId) {
+  try {
+    const result = await invoke('import_file', { filePath, folderId, folderPath, libraryId });
+    return result;
+  } catch (error) {
+    console.error('importFile error:', error);
+    if (throwOnError) throw error;
+    return null;
+  }
+}
+
+export async function importAndOrganize(albumId, sourcePath, destinationPath, layout, completedPaths = []) {
+  return await invoke('import_and_organize', { albumId, sourcePath, destinationPath, layout, completedPaths });
+}
+
+export async function cancelImportAndOrganize() {
+  return await invoke('cancel_import_and_organize');
+}
+
+export async function listenImportOrganizeProgress(callback) {
+  return await listen('import-organize-progress', callback);
+}
+
+export async function listenImportOrganizeFinished(callback) {
+  return await listen('import-organize-finished', callback);
+}
+
+export async function importUrl(url, folderId, folderPath) {
+  try {
+    const result = await invoke('import_url', { url, folderId, folderPath });
+    return result;
+  } catch (error) {
+    console.error('importUrl error:', error);
+    return null;
+  }
+}
+
+export async function importFileBytes(bytes, name, folderId, folderPath) {
+  try {
+    const result = await invoke('import_file_bytes', { bytes, name, folderId, folderPath });
+    return result;
+  } catch (error) {
+    console.error('importFileBytes error:', error);
+    return null;
+  }
+}
+
+export async function hasImportableClipboard() {
+  try {
+    return Boolean(await invoke('has_importable_clipboard'));
+  } catch (error) {
+    console.error('hasImportableClipboard error:', error);
+    return false;
+  }
+}
+
+export async function importClipboard(folderId, folderPath) {
+  return await invoke('import_clipboard', { folderId, folderPath });
+}
+
+export async function importFromDrag(folderId, folderPath) {
+  try {
+    const result = await invoke('import_from_drag', { folderId, folderPath });
+    return result;
+  } catch (error) {
+    console.error('importFromDrag error:', error);
+    return null;
+  }
+}
+
+export async function getDragPayload() {
+  try {
+    return await invoke('get_drag_payload');
+  } catch (error) {
+    console.error('getDragPayload error:', error);
+    return { filePaths: [], url: null };
+  }
+}
+
+export async function addFileToDb(folderId, filePath) {
+  try {
+    const result = await invoke('add_file_to_db', { folderId, filePath });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to add file to db:', error);
+  }
+  return null;
+}
+
+// check if file exists
+export async function checkFileExists(filePath) {
+  try {
+    return await invoke('check_file_exists', { filePath });
+  } catch (error) {
+    console.error('Failed to check file exists:', error);
+  }
+  return false;
+}
+
+export async function checkFileAccessibility(filePath) {
+  return invoke('check_file_accessibility', { filePath });
+}
+
+// set file rotate
+export async function setFileRotate(fileId, fileRotate) {
+  try {
+    const result = await invoke('set_file_rotate', { fileId, rotate: ((fileRotate % 360) + 360) % 360 });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to set file rotate:', error);
+  }
+  return null;
+}
+
+// get file has_tags status
+export async function getFileHasTags(fileId) {
+  try {
+    const result = await invoke('get_file_has_tags', { fileId });
+    if (result) {
+      return result;
+    }
+  } catch (error) {
+    console.error('Failed to get file has_tags status:', error);
+  }
+  return false;
+}
+
+// favorites
+
+// get favorite folders
+export async function getFavoriteFolders() {
+  try {
+    const favoriteFolders = await invoke('get_favorite_folders');
+    if (favoriteFolders) {
+      // sort favorite folders by name in locale order 
+      favoriteFolders.sort((a, b) => localeComp(config.settings.language, a.name, b.name));
+      return favoriteFolders;
+    }
+  } catch (error) {
+    console.error('Failed to get favorite folders:', error);
+  }
+  return null;
+}
+
+// get folder favorite
+export async function getFolderFavorite(folderPath) {
+  try {
+    const is_favorite = await invoke('get_folder_favorite', { folderPath });
+    if(is_favorite) {
+      return is_favorite;
+    };
+  } catch (error) {
+    console.log('Failed to get folder favorite:', error);
+  }
+  return false;
+}
+
+// set folder favorite
+export async function setFolderFavorite(folderId, isFavorite) {
+  try {
+    const result = await invoke('set_folder_favorite', { folderId, isFavorite });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to set folder favorite:', error);
+  }
+  return null;
+}
+
+// get folder search exclusion
+export async function getFolderSearchExcluded(folderPath) {
+  try {
+    const isExcluded = await invoke('get_folder_search_excluded', { folderPath });
+    if(isExcluded) {
+      return isExcluded;
+    };
+  } catch (error) {
+    console.log('Failed to get folder search exclusion:', error);
+  }
+  return false;
+}
+
+// set folder search exclusion
+export async function setFolderSearchExcluded(albumId, folderPath, isExcluded) {
+  try {
+    const result = await invoke('set_folder_search_excluded', { albumId, folderPath, isExcluded });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to set folder search exclusion:', error);
+  }
+  return null;
+}
+
+// set file favorite
+export async function setFileFavorite(fileId, isFavorite) {
+  try {
+    const result = await invoke('set_file_favorite', { fileId, isFavorite });
+    if(result) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to set file favorite:', error);
+  }
+  return null;
+}
+
+// set file rating
+export async function setFileRating(fileId, rating) {
+  try {
+    const result = await invoke('set_file_rating', { fileId, rating });
+    if(result !== null && result !== undefined) {
+      return result;
+    };
+  } catch (error) {
+    console.log('Failed to set file rating:', error);
+  }
+  return null;
+}
+
+// set file culling status (0: unreviewed, 1: pick, 2: reject)
+export async function setFileCullingFlag(fileId, cullingFlag) {
+  try {
+    const result = await invoke('set_file_culling_flag', { fileId, cullingFlag });
+    if (result !== null && result !== undefined) {
+      return result;
+    }
+  } catch (error) {
+    console.log('Failed to set file culling flag:', error);
+  }
+  return null;
+}
+
+export async function batchUpdateFileMetadata(params) {
+  try {
+    return await invoke('batch_update_file_metadata', { params });
+  } catch (error) {
+    console.error('Failed to update file metadata:', error);
+    return null;
+  }
+}
+
+// tags
+
+export async function getTagGroupName(id) {
+  return invoke('get_tag_group_name', { id });
+}
+
+export async function getTagGroups() {
+  return invoke('get_tag_groups');
+}
+
+export async function saveTagGroup(id, name) {
+  return invoke('save_tag_group', { id, name });
+}
+
+export async function reorderTagGroups(ids) {
+  return invoke('reorder_tag_groups', { ids });
+}
+
+export async function deleteTagGroup(id) {
+  return invoke('delete_tag_group', { id });
+}
+
+export async function moveTagsToGroup(tagIds, groupId) {
+  return invoke('move_tags_to_group', { tagIds, groupId });
+}
+
+// get all tags
+export async function getAllTags(sort = 0) {
+  try {
+    const tags = await invoke('get_all_tags', { sort });
+    console.log('getAllTags:', tags);
+    if (tags) {
+      return tags;
+    }
+  } catch (error) {
+    console.error('Failed to get all tags:', error);
+  }
+  return null;
+}
+
+export async function getTagCounts() {
+  try {
+    return await invoke('get_tag_counts');
+  } catch (error) {
+    console.error('Failed to get tag counts:', error);
+  }
+  return null;
+}
+
+// get tag name by id
+export async function getTagName(tagId, includeGroup = false) {
+  try {
+    const tagName = await invoke('get_tag_name', { tagId, includeGroup });
+    if (tagName) {
+      return tagName;
+    }
+  } catch (error) {
+    console.error('Failed to get tag name:', error);
+  }
+  return null;
+}
+
+// create a new tag
+export async function createTag(name, groupId = null) {
+  try {
+    const result = await invoke('create_tag', { name, groupId });
+    return result;
+  } catch (error) {
+    console.error('Failed to create tag:', error);
+  }
+  return null;
+}
+
+// rename a tag
+export async function renameTag(tagId, newName) {
+  try {
+    const result = await invoke('rename_tag', { tagId, newName });
+    return result;
+  } catch (error) {
+    console.error('Failed to rename tag:', error);
+  }
+  return null;
+}
+
+// delete a tag
+export async function deleteTag(tagId) {
+  try {
+    const result = await invoke('delete_tag', { tagId });
+    return result;
+  } catch (error) {
+    console.error('Failed to delete tag:', error);
+  }
+  return null;
+}
+
+// get tags for a file
+export async function getTagsForFile(fileId) {
+  try {
+    const tags = await invoke('get_tags_for_file', { fileId });
+    if (tags) {
+      return tags;
+    }
+  } catch (error) {
+    console.error('Failed to get tags for file:', error);
+  }
+  return null;
+}
+
+// add tag to file
+export async function addTagToFile(fileId, tagId) {
+  try {
+    const result = await invoke('add_tag_to_file', { fileId, tagId });
+    return result;
+  } catch (error) {
+    console.error('Failed to add tag to file:', error);
+  }
+  return null;
+}
+
+// remove tag from file
+export async function removeTagFromFile(fileId, tagId) {
+  try {
+    const result = await invoke('remove_tag_from_file', { fileId, tagId });
+    return result;
+  } catch (error) {
+    console.error('Failed to remove tag from file:', error);
+  }
+  return null;
+}
+
+export async function getTagSelectionCounts(fileIds) {
+  try {
+    return await invoke('get_tag_selection_counts', { fileIds });
+  } catch (error) {
+    console.error('Failed to get tag selection counts:', error);
+    return null;
+  }
+}
+
+export async function applyTagsToFiles(fileIds, addTagIds, removeTagIds) {
+  try {
+    return await invoke('apply_tags_to_files', { fileIds, addTagIds, removeTagIds });
+  } catch (error) {
+    console.error('Failed to apply tags to files:', error);
+    return null;
+  }
+}
+
+// calendar
+
+// get taken dates
+export async function getTakenDates(sort = 0) {
+  try {
+    const taken_dates = await invoke('get_taken_dates', { sort });
+    if (taken_dates) {
+      return taken_dates;
+    }
+  } catch (error) {
+    console.error('Failed to get taken dates:', error);
+  }
+  return null;
+}
+
+// camera
+
+// get camera info
+export async function getCameraInfo(sort = 0) {
+  try {
+    const cameraInfo = await invoke('get_camera_info', { sort });
+    if (cameraInfo) {
+      return cameraInfo;
+    }
+  } catch (error) {
+    console.error('Failed to get camera info:', error);
+  }
+  return null;
+}
+
+// get lens info
+export async function getLensInfo(sort = 0) {
+  try {
+    const lensInfo = await invoke('get_lens_info', { sort });
+    if (lensInfo) {
+      return lensInfo;
+    }
+  } catch (error) {
+    console.error('Failed to get lens info:', error);
+  }
+  return null;
+}
+
+// location
+
+// get location info
+export async function getLocationInfo(sort = 0) {
+  try {
+    const locationInfo = await invoke('get_location_info', { sort });
+    if (locationInfo) {
+      return locationInfo;
+    }
+  } catch (error) {
+    console.error('Failed to get location info:', error);
+  }
+  return null;
+}
+
+// get GPS coordinates and representative thumbnails for the current media query
+export async function getGpsMapPoints(params) {
+  try {
+    return await invoke('get_gps_map_points', { params });
+  } catch (error) {
+    console.error('Failed to get GPS map points:', error);
+  }
+  return [];
+}
+
+// settings
+
+// get package info
+export async function getPackageInfo() {
+  try {
+    const packageInfo = await invoke('get_package_info');
+    if (packageInfo) {
+      return packageInfo;
+    }
+  } catch (error) {
+    console.error('Failed to get package info:', error);
+  }
+  return null;
+}
+
+// get build time
+export async function getBuildTime() {
+  try {
+    const unixTime = await invoke('get_build_time');
+    if (unixTime) {
+      return formatTimestamp(unixTime, 'date_time');
+    }
+  } catch (error) {
+    console.error('Failed to get build time:', error);
+  }
+  return null;
+}
+
+// get db file info
+export async function getStorageFileInfo() {
+  try {
+    const dbFileInfo = await invoke('get_storage_file_info');
+    if (dbFileInfo) {
+      return dbFileInfo;
+    }
+  } catch (error) {
+    console.error('Failed to get db file size:', error);
+  }
+  return null;
+}
+
+// image search
+
+// check ai status
+export async function checkAiStatus() {
+  try {
+    const status = await invoke('check_ai_status');
+    return status;
+  } catch (error) {
+    console.error('checkAiStatus error:', error);
+  }
+  return 'Unknown';
+}
+
+export async function getImageSearchModelStatus() {
+  try {
+    return await invoke('get_image_search_model_status');
+  } catch (error) {
+    console.error('getImageSearchModelStatus error:', error);
+  }
+  return null;
+}
+
+export async function setImageSearchModel(model) {
+  try {
+    return await invoke('set_image_search_model', { model });
+  } catch (error) {
+    console.error('setImageSearchModel error:', error);
+    throw error;
+  }
+}
+
+export async function downloadMultilingualImageSearchModel() {
+  try {
+    return await invoke('download_multilingual_image_search_model');
+  } catch (error) {
+    console.error('downloadMultilingualImageSearchModel error:', error);
+    throw error;
+  }
+}
+
+export async function cancelMultilingualImageSearchModelDownload() {
+  try {
+    return await invoke('cancel_multilingual_image_search_model_download');
+  } catch (error) {
+    console.error('cancelMultilingualImageSearchModelDownload error:', error);
+  }
+}
+
+export async function listenImageSearchModelDownloadProgress(callback) {
+  return await listen('image_search_model_download_progress', callback);
+}
+
+// generate embedding
+export async function generateEmbedding(fileId) {
+  try {
+    const result = await invoke('generate_embedding', { fileId, libraryId: libConfig._libraryId });
+    return result;
+  } catch (error) {
+    console.error('generateEmbedding error:', error);
+  }
+  return null;
+}
+
+// search similar images
+export async function searchSimilarImages(params) {
+  const libraryId = libConfig._libraryId;
+  try {
+    if (params?.searchText) {
+      await setImageSearchModel(config.settings.imageSearch?.model || 0);
+    }
+    const results = await invoke('search_similar_images', { params, libraryId });
+    return results || [];
+  } catch (error) {
+    console.error('searchSimilarImages error:', error);
+    throw error;
+  }
+}
+
+// ============================================================
+// FORK: 本地 VLM 视觉索引
+// ============================================================
+
+// 读取 VLM 配置
+export async function getLlmConfig() {
+  try {
+    return await invoke('get_llm_config');
+  } catch (error) {
+    console.error('getLlmConfig error:', error);
+    return null;
+  }
+}
+
+// 保存 VLM 配置
+export async function saveLlmConfig(cfg) {
+  try {
+    await invoke('save_llm_config_cmd', { cfg });
+    return true;
+  } catch (error) {
+    console.error('saveLlmConfig error:', error);
+    throw error;
+  }
+}
+
+// 测试与本地视觉模型服务的连接
+export async function testLlmConnection() {
+  try {
+    return await invoke('test_llm_connection');
+  } catch (error) {
+    console.error('testLlmConnection error:', error);
+    throw error;
+  }
+}
+
+// 启动 VLM 索引
+export async function startLlmIndexing() {
+  try {
+    await invoke('start_llm_indexing');
+    return true;
+  } catch (error) {
+    console.error('startLlmIndexing error:', error);
+    throw error;
+  }
+}
+
+// 取消 VLM 索引
+export async function cancelLlmIndexing() {
+  try {
+    await invoke('cancel_llm_indexing');
+    return true;
+  } catch (error) {
+    console.error('cancelLlmIndexing error:', error);
+    return false;
+  }
+}
+
+// VLM 索引统计
+export async function getLlmIndexStats() {
+  try {
+    return await invoke('get_llm_index_stats');
+  } catch (error) {
+    console.error('getLlmIndexStats error:', error);
+    return null;
+  }
+}
+
+// 单个文件的 VLM caption（未索引返回 null）
+export async function getLlmCaption(fileId) {
+  try {
+    return await invoke('get_llm_caption', { fileId });
+  } catch (error) {
+    console.error('getLlmCaption error:', error);
+    return null;
+  }
+}
+
+// 监听索引进度
+export async function listenLlmIndexProgress(callback) {
+  return await listen('llm_index_progress', callback);
+}
+
+// 监听索引结束
+export async function listenLlmIndexFinished(callback) {
+  return await listen('llm_index_finished', callback);
+}
+
+// indexing
+
+// index album
+export async function indexAlbum(albumId, skipFilePath = null) {
+  try {
+    await invoke('index_album', {
+      albumId,
+      thumbnailSize: config.settings.thumbnailSize || 512,
+      rawDisplayOptions: getRawDisplayOptions(),
+      skipFilePath,
+      groupRawJpegPairs: Boolean(config.settings.groupRawJpegPairs),
+    });
+  } catch (error) {
+    console.error('indexAlbum error:', error);
+  }
+}
+
+// cancel indexing
+export async function cancelIndexing(albumId) {
+  try {
+    await invoke('cancel_indexing', { albumId });
+  } catch (error) {
+    console.error('cancelIndexing error:', error);
+  }
+}
+
+export async function getIndexRecoveryInfo() {
+  try {
+    return await invoke('get_index_recovery_info');
+  } catch (error) {
+    console.error('getIndexRecoveryInfo error:', error);
+  }
+  return null;
+}
+
+export async function clearIndexRecoveryInfo() {
+  try {
+    await invoke('clear_index_recovery_info');
+    return true;
+  } catch (error) {
+    console.error('Failed to clear index recovery info:', error);
+  }
+  return false;
+}
+
+// listen index progress
+export async function listenIndexProgress(callback) {
+  return await listen('index_progress', callback);
+}
+
+// deduplication
+
+// start deduplication scan
+export async function dedupStartScan(params = null, collectionId = null, fileIds = null) {
+  return await invoke('dedup_start_scan', { params, collectionId, fileIds });
+}
+
+// get deduplication scan status
+export async function dedupGetScanStatus() {
+  try {
+    const status = await invoke('dedup_get_scan_status');
+    return status;
+  } catch (error) {
+    console.error('dedupGetScanStatus error:', error);
+  }
+}
+
+// cancel deduplication scan
+export async function dedupCancelScan() {
+  try {
+    const result = await invoke('dedup_cancel_scan');
+    return result;
+  } catch (error) {
+    console.error('dedupCancelScan error:', error);
+  }
+}
+
+// list deduplication groups
+export async function dedupListGroups(page = 1, pageSize = 0, sortBy = 'size_desc', filter = 'all') {
+  try {
+    const groups = await invoke('dedup_list_groups', { page, pageSize, sortBy, filter });
+    return groups;
+  } catch (error) {
+    console.error('dedupListGroups error:', error);
+  }
+}
+
+// get deduplication overview
+export async function dedupGetOverview() {
+  try {
+    const overview = await invoke('dedup_get_overview');
+    return overview;
+  } catch (error) {
+    console.error('dedupGetOverview error:', error);
+  }
+}
+
+// set keep file in duplicate group
+export async function dedupSetKeep(groupId, fileId) {
+  return await invoke('dedup_set_keep', { groupId, fileId });
+}
+
+// Delete explicitly selected duplicates or every removable duplicate.
+export async function dedupDelete({
+  groupIds = null,
+  fileIds = null,
+  deleteAll = false,
+  permanently = false,
+} = {}) {
+  try {
+    return await invoke('dedup_delete', {
+      request: { groupIds, fileIds, deleteAll, permanently },
+    });
+  } catch (error) {
+    console.error('dedupDelete error:', error);
+    throw error;
+  }
+}
+
+// listen dedup scan progress
+export async function listenDedupScanProgress(callback) {
+  return await listen('dedup-scan-progress', callback);
+}
+
+export async function similarStartScan(scopeKey, sourceVersion, similarityThreshold, params = null, collectionId = null, fileIds = null) {
+  return await invoke('similar_start_scan', { scopeKey, sourceVersion, similarityThreshold, params, collectionId, fileIds });
+}
+
+export async function similarGetScanStatus() {
+  return await invoke('similar_get_scan_status');
+}
+
+export async function similarCancelScan() {
+  return await invoke('similar_cancel_scan');
+}
+
+export async function similarGetEligibleCount(params = null, collectionId = null, fileIds = null) {
+  return await invoke('similar_get_eligible_count', { params, collectionId, fileIds });
+}
+
+export async function similarListGroups(scopeKey, limit = 100, offset = 0) {
+  return await invoke('similar_list_groups', { scopeKey, limit, offset });
+}
+export async function similarGetOverview(scopeKey) { return await invoke('similar_get_overview', { scopeKey }); }
+export async function similarGetGroup(groupId, scopeKey) { return await invoke('similar_get_group', { groupId, scopeKey }); }
+export async function similarSetKeep(groupId, fileId, scopeKey) { return await invoke('similar_set_keep', { groupId, fileId, scopeKey }); }
+export async function similarHasScan(scopeKey) { return await invoke('similar_has_scan', { scopeKey }); }
+
+export async function listenSimilarScanProgress(callback) {
+  return await listen('similar-scan-progress', callback);
+}
+
+// listen index finished
+export async function listenIndexFinished(callback) {
+  return await listen('index_finished', callback);
+}
+
+// index faces for all images in library
+export async function indexFaces(clusterEpsilon) {
+  try {
+    const result = await invoke('index_faces', { clusterEpsilon });
+    return result;
+  } catch (error) {
+    console.error('Failed to index faces:', error);
+  }
+  return null;
+}
+
+// cancel face indexing
+export async function cancelFaceIndex() {
+  try {
+    await invoke('cancel_face_index');
+  } catch (error) {
+    console.error('Failed to cancel face index:', error);
+  }
+}
+
+// reset faces
+export async function resetFaces() {
+  try {
+    await invoke('reset_faces');
+    return true;
+  } catch (error) {
+    console.error('Failed to reset faces:', error);
+  }
+  return false;
+}
+
+// check if face indexing is running
+export async function isFaceIndexing() {
+  try {
+    return await invoke('is_face_indexing');
+  } catch (error) {
+    console.error('Failed to check face indexing status:', error);
+    return false;
+  }
+}
+
+// get face indexing stats
+export async function getFaceStats() {
+  try {
+    return await invoke('get_face_stats');
+  } catch (error) {
+    console.error('Failed to get face stats:', error);
+    return null;
+  }
+}
+
+// listen face index progress
+export async function listenFaceIndexProgress(callback) {
+  return await listen('face_index_progress', callback);
+}
+
+// listen face index finished
+export async function listenFaceIndexFinished(callback) {
+  return await listen('face_index_finished', callback);
+}
+
+// listen cluster progress (for clustering phase)
+export async function listenClusterProgress(callback) {
+  return await listen('cluster_progress', callback);
+}
+
+// person (face recognition)
+
+// get all persons
+export async function getPersons(sort = 0) {
+  try {
+    const persons = await invoke('get_persons', { sort });
+    if (persons) {
+      return persons;
+    }
+  } catch (error) {
+    console.error('Failed to get persons:', error);
+  }
+  return null;
+}
+
+export async function getPersonsPage(request) {
+  try {
+    return await invoke('get_persons_page', { request });
+  } catch (error) {
+    console.error('Failed to get persons page:', error);
+  }
+  return null;
+}
+
+// rename a person
+export async function renamePerson(personId, name) {
+  try {
+    const result = await invoke('rename_person', { personId, name });
+    return result;
+  } catch (error) {
+    console.error('Failed to rename person:', error);
+  }
+  return null;
+}
+
+// delete a person (faces will have person_id set to null)
+export async function deletePerson(personId) {
+  try {
+    const result = await invoke('delete_person', { personId });
+    return result;
+  } catch (error) {
+    console.error('Failed to delete person:', error);
+  }
+  return null;
+}
+
+// get faces for a file
+export async function getFacesForFile(fileId) {
+  try {
+    const faces = await invoke('get_faces_for_file', { fileId });
+    if (faces) {
+      return faces;
+    }
+  } catch (error) {
+    console.error('Failed to get faces for file:', error);
+  }
+  return null;
+}
+
+// get a single person's face thumbnail (Base64)
+export async function getPersonThumbnail(personId) {
+  try {
+    return await invoke('get_person_thumbnail', { personId });
+  } catch (error) {
+    console.error('Failed to get person thumbnail:', error);
+  }
+  return null;
+}
+
+export async function listAlbumSubfolders(path) {
+  return invoke('list_album_subfolders', { path });
+}

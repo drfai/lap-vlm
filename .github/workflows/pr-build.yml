@@ -1,0 +1,579 @@
+name: PR Build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - macos
+          - windows
+          - linux
+      ref:
+        description: "Git ref to build (branch, tag, or SHA)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: pr-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin the Tauri CLI so bundled-linuxdeploy/GTK-hook changes in a floating
+  # `@tauri-apps/cli@v2` cannot silently break packaging. Bump deliberately.
+  TAURI_CLI_VERSION: '2.12.0'
+
+jobs:
+  build-macos:
+    if: |
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            target: aarch64-apple-darwin
+            arch: aarch64
+          - platform: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x86_64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: brew install nasm pkg-config
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-cargo-
+
+      - name: Download FFmpeg Sidecars
+        shell: bash
+        run: bash scripts/download_ffmpeg_sidecar.sh ${{ matrix.platform }} ${{ matrix.arch }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: src-vite
+
+      - name: Cache AI Models
+        id: cache-ai-models
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/resources/models
+          key: ${{ runner.os }}-models-${{ hashFiles('scripts/download_models.sh', 'scripts/download_models.ps1') }}
+
+      - name: Download AI Models
+        if: steps.cache-ai-models.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: bash scripts/download_models.sh
+
+      - name: Clear cached macOS bundle artifacts
+        shell: bash
+        run: rm -rf "src-tauri/target/${{ matrix.target }}/release/bundle"
+
+      - name: Install pinned Tauri CLI
+        run: npm install -g @tauri-apps/cli@${{ env.TAURI_CLI_VERSION }}
+
+      - name: Build and Sign
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APTABASE_KEY: ${{ secrets.APTABASE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: .
+          tauriScript: tauri
+          args: --target ${{ matrix.target }} --verbose --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Notarize and Staple
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          echo "Finding DMG for notarization..."
+          DMG_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -n 1)
+          if [ -z "$DMG_PATH" ]; then
+            DMG_PATH=$(find src-tauri/target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -n 1)
+          fi
+          if [ -z "$DMG_PATH" ]; then
+            echo "Error: Could not find generated DMG file."
+            exit 1
+          fi
+
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple "$DMG_PATH"
+
+          export TAURI_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}"
+          npx -y @tauri-apps/cli signer sign "$DMG_PATH"
+
+      - name: Rename macOS package for PR build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SUFFIX="pr-${{ github.event.pull_request.number || github.run_number }}"
+          DMG_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -n 1)
+          if [ -z "$DMG_PATH" ]; then
+            echo "Error: Could not find generated DMG file."
+            exit 1
+          fi
+
+          DMG_DIR="$(dirname "$DMG_PATH")"
+          DMG_NAME="$(basename "$DMG_PATH")"
+          DMG_BASE="${DMG_NAME%.dmg}"
+          mv "$DMG_PATH" "$DMG_DIR/${DMG_BASE}-${SUFFIX}.dmg"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lap-pr-macos-${{ matrix.arch }}-${{ github.event.pull_request.number || github.run_number }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  build-windows:
+    if: |
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows')) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            msvc_arch: x64
+            msvc_vsversion: "2022"
+          - arch: arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            msvc_arch: arm64
+            # The windows-11-arm image now ships VS 2026; leave vsversion empty so
+            # vswhere auto-discovers whatever MSVC the runner provides.
+            msvc_vsversion: ""
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: windows-${{ matrix.arch }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            windows-${{ matrix.arch }}-pnpm-store-
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\bin\
+            ~\.cargo\registry\index\
+            ~\.cargo\registry\cache\
+            ~\.cargo\git\db\
+          key: windows-${{ matrix.arch }}-cargo-pr-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            windows-${{ matrix.arch }}-cargo-pr-
+
+      - name: Install frontend dependencies
+        working-directory: src-vite
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache AI Models
+        id: cache-ai-models
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/resources/models
+          key: ${{ runner.os }}-models-${{ hashFiles('scripts/download_models.sh', 'scripts/download_models.ps1') }}
+
+      - name: Download AI Models (Windows)
+        if: steps.cache-ai-models.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: .\scripts\download_models.ps1
+
+      - name: Force app frontend build command (Windows CI only)
+        shell: pwsh
+        run: |
+          $path = "src-tauri/tauri.conf.json"
+          $json = Get-Content $path -Raw | ConvertFrom-Json
+          $json.build.beforeBuildCommand = "pnpm --dir ../src-vite build || pnpm --dir src-vite build"
+          $json | ConvertTo-Json -Depth 100 | Set-Content -Path $path -Encoding utf8
+
+      - name: Setup MSVC build environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+          vsversion: ${{ matrix.msvc_vsversion }}
+
+      - name: Set MSI runtime prerequisite version
+        shell: pwsh
+        run: |
+          if (-not $env:VCToolsVersion) { throw "MSVC toolset version is missing." }
+          $toolset = [version]$env:VCToolsVersion.Trim()
+          $minimum = [version]::new($toolset.Major, $toolset.Minor, [Math]::Max(0, $toolset.Build), [Math]::Max(0, $toolset.Revision))
+          "TAURI_LAP_VC_RUNTIME_MIN_VERSION=$minimum" >> $env:GITHUB_ENV
+          Write-Host "MSI runtime minimum: $minimum"
+
+      - name: Remove ranlib from PATH
+        shell: pwsh
+        run: |
+          $paths = $env:PATH -split ';' | Where-Object {
+            $_ -and
+            -not (Test-Path (Join-Path $_ 'ranlib.exe'))
+          }
+          "PATH=$($paths -join ';')" >> $env:GITHUB_ENV
+
+      - name: Clear cached Windows bundle artifacts
+        shell: pwsh
+        run: |
+          $bundleDir = "src-tauri/target/${{ matrix.target }}/release/bundle"
+          if (Test-Path $bundleDir) {
+            Remove-Item -Recurse -Force $bundleDir
+          }
+
+      - name: Download FFmpeg Sidecars (Windows)
+        shell: pwsh
+        run: .\scripts\download_ffmpeg_sidecar.ps1 -Arch ${{ matrix.arch }}
+
+      - name: Install pinned Tauri CLI
+        run: npm install -g @tauri-apps/cli@${{ env.TAURI_CLI_VERSION }}
+
+      - name: Build and Sign (Windows ${{ matrix.arch }})
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APTABASE_KEY: ${{ secrets.APTABASE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          tauriScript: tauri
+          args: --verbose --target ${{ matrix.target }} --bundles msi --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Verify MSI runtime prerequisite
+        shell: pwsh
+        run: |
+          $msis = @(Get-ChildItem -Path "src-tauri/target/${{ matrix.target }}/release/bundle/msi" -Filter "*.msi" -File)
+          if ($msis.Count -ne 1) { throw "Expected exactly one Windows MSI." }
+          .\scripts\test_windows_msi_runtime.ps1 -MsiPath $msis[0].FullName
+
+      - name: Rename Windows package for PR build
+        shell: pwsh
+        run: |
+          $suffix = "pr-${{ github.event.pull_request.number || github.run_number }}"
+          $msi = Get-ChildItem -Path "src-tauri/target/${{ matrix.target }}/release/bundle/msi" -Filter "*.msi" -File | Select-Object -First 1
+          if (-not $msi) {
+            throw "Could not find generated MSI file."
+          }
+
+          $newMsiName = "{0}-{1}{2}" -f [System.IO.Path]::GetFileNameWithoutExtension($msi.Name), $suffix, $msi.Extension
+          $newMsiPath = Join-Path $msi.DirectoryName $newMsiName
+          Move-Item -Path $msi.FullName -Destination $newMsiPath -Force
+
+          $sigPath = "$($msi.FullName).sig"
+          if (Test-Path $sigPath) {
+            Move-Item -Path $sigPath -Destination "$newMsiPath.sig" -Force
+          }
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lap-pr-windows-${{ matrix.arch }}-${{ github.event.pull_request.number || github.run_number }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi.sig
+          if-no-files-found: error
+ 
+  build-linux:
+    if: |
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux')) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libjpeg-turbo8-dev zsync
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: linux-${{ matrix.arch }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            linux-${{ matrix.arch }}-pnpm-store-
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: linux-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            linux-${{ matrix.arch }}-cargo-
+
+      - name: Download FFmpeg Sidecars
+        shell: bash
+        run: bash scripts/download_ffmpeg_sidecar.sh linux ${{ matrix.arch }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: src-vite
+
+      - name: Cache AI Models
+        id: cache-ai-models
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/resources/models
+          key: ${{ runner.os }}-models-${{ hashFiles('scripts/download_models.sh', 'scripts/download_models.ps1') }}
+
+      - name: Download AI Models
+        if: steps.cache-ai-models.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: bash scripts/download_models.sh
+
+      - name: Clear cached Linux bundle artifacts
+        shell: bash
+        run: rm -rf src-tauri/target/${{ matrix.target }}/release/bundle
+
+      - name: Install pinned Tauri CLI
+        run: npm install -g @tauri-apps/cli@${{ env.TAURI_CLI_VERSION }}
+
+      - name: Build and Sign
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APTABASE_KEY: ${{ secrets.APTABASE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          tauriScript: tauri
+          args: --verbose --target ${{ matrix.target }} --bundles deb,appimage --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Rename Linux package for PR build
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUFFIX="pr-${{ github.event.pull_request.number || github.run_number }}"
+          find src-tauri/target/${{ matrix.target }}/release/bundle -type f \( -name "*.deb" -o -name "*.AppImage" \) | while read file; do
+            dir=$(dirname "$file")
+            base=$(basename "$file")
+            ext="${file##*.}"
+            filename="${base%.*}"
+            mv "$file" "$dir/${filename}-${SUFFIX}.${ext}"
+          done
+
+      - name: Strip bundled Wayland client and add update info
+        shell: bash
+        env:
+          UPDATE_INFO: "zsync|https://github.com/${{ github.repository }}/releases/download/pr-build/{name}.zsync"
+          ZSYNC_URL: "https://github.com/${{ github.repository }}/releases/download/pr-build/{name}"
+        run: >
+          bash scripts/remove_appimage_wayland_client.sh
+          src-tauri/target/${{ matrix.target }}/release/bundle/appimage
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lap-pr-linux-${{ matrix.arch }}-${{ github.event.pull_request.number || github.run_number }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+            src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+            src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.zsync
+          if-no-files-found: error
+
+  publish-pr-build:
+    needs: [build-macos, build-windows, build-linux]
+    if: |
+      always() &&
+      !cancelled() &&
+      contains(needs.*.result, 'success')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lap-pr-*
+          path: release-files
+          merge-multiple: true
+
+      - name: Show release files
+        run: ls -la release-files
+
+      - name: Upload files to GitHub Release tag pr-build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="pr-build"
+
+          if ! gh release view "$TAG" -R "$GH_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              -R "$GH_REPO" \
+              --title "PR Build" \
+              --notes "Latest PR build artifacts (auto-updated by CI)." \
+              --prerelease
+          fi
+
+          # Remove only the stale assets whose file type was rebuilt in THIS run,
+          # so a partial run (e.g. macOS only) keeps the other platforms' files.
+          # Extensions are platform-unique (dmg | msi/sig | deb/AppImage/zsync),
+          # so matching the produced extensions scopes the cleanup per platform.
+          mapfile -t rebuilt_exts < <(find release-files -type f | sed -E 's/.*(\.[A-Za-z0-9]+)$/\1/' | sort -u)
+
+          gh release view "$TAG" -R "$GH_REPO" --json assets --jq '.assets[].name' | while IFS= read -r asset; do
+            [ -n "$asset" ] || continue
+            ext=".${asset##*.}"
+            for e in "${rebuilt_exts[@]}"; do
+              if [ "${ext,,}" = "${e,,}" ]; then
+                echo "Deleting stale asset for a rebuilt platform: $asset"
+                gh release delete-asset "$TAG" "$asset" -R "$GH_REPO" -y
+                break
+              fi
+            done
+          done
+
+          find release-files -type f -print0 | xargs -0 -r gh release upload "$TAG" -R "$GH_REPO" --clobber

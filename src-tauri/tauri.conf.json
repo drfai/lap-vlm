@@ -1,0 +1,75 @@
+{
+  "productName": "Lap",
+  "version": "0.3.3",
+  "identifier": "com.julyx10.lap",
+  "build": {
+    "beforeBuildCommand": "pnpm --dir ../src-vite build",
+    "beforeDevCommand": "pnpm --dir ../src-vite dev",
+    "devUrl": "http://localhost:3580",
+    "frontendDist": "../src-vite/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "capabilities": [
+        "default"
+      ],
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/**",
+          "$PICTURES/**",
+          "$VIDEOS/**",
+          "$DOCUMENT/**",
+          "$DESKTOP/**",
+          "$DOWNLOAD/**",
+          "$APPCACHE/**",
+          "/Volumes/**",
+          "/media/**",
+          "/mnt/**",
+          "/run/media/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "Graphics and Design",
+    "targets": "all",
+    "createUpdaterArtifacts": false,
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "resources": {
+      "resources/models/*": "models",
+      "resources/ffmpeg/*": "ffmpeg",
+      "resources/onnxruntime.dll": "onnxruntime.dll",
+      "../THIRD_PARTY_NOTICES.txt": "licenses/THIRD_PARTY_NOTICES.txt"
+    }
+  },
+  "plugins": {
+    "_updater_disabled": {
+      "_comment": "FORK: updater 指向 julyx10/lap 官方 releases, 且带官方公钥。保留它会导致上游发版时尝试覆盖本 fork 的代码, 或因签名校验失败刷错误。本 fork 已完全禁用。如需自建更新通道, 请替换为自己的 endpoints + pubkey。",
+      "_original_endpoints": [
+        "https://github.com/julyx10/lap/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

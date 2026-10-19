@@ -1,0 +1,692 @@
+<template>
+  <ModalDialog 
+    :title="$t('msgbox.manage_libraries.title')" 
+    :width="600"
+    :height="400"
+    position-key="manage-libraries"
+    @cancel="clickCancel"
+  >
+    <template #title-actions>
+      <button
+        type="button"
+        class="t-button-default btn-outline gap-1.5"
+        :disabled="isMaxLibraryReached || showAddInput || isRenaming || isAddingLibrary"
+        @click="startAddLibrary"
+      >
+        <IconAdd class="w-4 h-4" aria-hidden="true" />
+        {{ $t('msgbox.manage_libraries.add_new') }}
+      </button>
+    </template>
+    <div class="flex flex-col flex-1 min-h-0 border border-base-content/5 bg-base-300/30 shadow-sm rounded-box overflow-hidden relative">
+      <div class="flex items-center px-2 py-2 shrink-0 select-none">
+        <span class="flex-1 sidebar-panel-header-title text-base-content/30">{{ $t('msgbox.manage_libraries.libraries') }} ({{ libraries.length }})</span>
+      </div>
+
+      <div class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto select-none">
+        <VueDraggable 
+          v-model="libraries" 
+          class="p-1"
+          :animation="200"
+          handle=".drag-handle"
+          :disabled="showAddInput || isRenaming || reorderingLibraryId === null"
+          @end="onDragEnd"
+        >
+        <div 
+          v-for="lib in libraries" 
+          :key="lib.id"
+          :ref="(el) => setLibraryItemRef(el, lib.id)"
+          :data-reordering-library="reorderingLibraryId === lib.id ? 'true' : undefined"
+          class="flex items-center px-1 h-12 rounded-box group transition-all duration-200 ease-in-out"
+          :class="[
+            selectedLibraryId === lib.id
+              ? 'text-base-content bg-base-100 hover:bg-base-100 selected-item'
+              : 'text-base-content/70 hover:bg-base-100/30',
+            showAddInput || (isRenaming && editingId !== lib.id) ? 'opacity-50' : 'cursor-pointer',
+          ]"
+          @click="selectLibrary(lib)"
+        >
+          <!-- Reorder handle: space always reserved (w-5) to avoid layout shift;
+               icon + .drag-handle class only present for the row in reorder mode.
+               w-5 (20px) with a 16px icon leaves 4px on the right, which plus
+               the name container's p-1 (4px) yields an 8px gap to IconPhotoAll. -->
+          <div
+            class="w-4 shrink-0 flex items-center"
+            :class="[
+              reorderingLibraryId === lib.id ? 'drag-handle cursor-move' : '',
+              reorderingLibraryId === lib.id && (showAddInput || isRenaming) ? 'cursor-not-allowed opacity-30' : '',
+            ]"
+            :title="reorderingLibraryId === lib.id ? $t('msgbox.manage_libraries.reorder') : undefined"
+          >
+            <IconDragHandle v-if="reorderingLibraryId === lib.id" class="w-4 h-4 text-base-content/70 hover:text-base-content" />
+          </div>
+
+          <!-- Name & Info -->
+          <div class="h-full p-1 min-w-0 flex-1 flex flex-col justify-center">
+            <div class="flex items-center gap-2">
+              <input
+                v-if="editingId === lib.id"
+                :ref="(el) => setEditInputRef(el, lib.id)"
+                v-model="inputNameValue"
+                type="text"
+                class="input input-sm w-full min-w-0"
+                maxlength="64"
+                @blur="saveRename(lib)"
+                @keydown.enter.prevent="saveRename(lib)"
+                @keydown.esc.stop="cancelRename"
+                @click.stop
+              />
+              <div v-else class="min-w-0 flex items-center">
+                <IconPhotoAll
+                  class="w-4 h-4 mr-2 shrink-0"
+                  :class="lib.id === currentLibraryId ? 'text-primary' : lib.hidden ? 'text-base-content/30' : 'text-base-content/70'"
+                />
+                <span class="truncate" 
+                  :class="{ 
+                    'text-primary': lib.id === currentLibraryId,
+                    'text-base-content/30': lib.hidden,
+                  }"
+                >
+                  {{ lib.name }}
+                </span>
+                <span v-if="lib.id === 'default'" class="ml-2 shrink-0 rounded-box border border-base-content/5 px-1.5 text-[10px] font-bold uppercase tracking-wide text-base-content/30">{{ $t('msgbox.manage_libraries.default') }}</span>
+                <span v-if="lib.hidden" class="ml-2 shrink-0 rounded-box border border-base-content/5 px-1.5 text-[10px] font-bold uppercase tracking-wide text-base-content/30">{{ $t('msgbox.manage_libraries.hidden') }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right side: stats (always visible) + context menu (on hover/select) -->
+          <div class="ml-auto flex flex-row items-center gap-1 shrink-0 text-base-content/30">
+            <div class="text-right text-xs flex flex-col justify-center gap-0.5 max-w-48">
+              <template v-if="libraryStats[lib.id]">
+                <span class="truncate leading-4">
+                  {{ $t('statusbar.files_summary', { count: libraryStats[lib.id].fileCount.toLocaleString(), size: formatFileSize(libraryStats[lib.id].totalSize) }) }}
+                </span>
+                <span v-if="libraryStats[lib.id].thumbCacheSize > 0" class="truncate leading-4">
+                  {{ $t('msgbox.manage_libraries.cache_size', { size: formatFileSize(libraryStats[lib.id].thumbCacheSize) }) }}
+                </span>
+              </template>
+              <span v-else-if="libraryStatsLoading[lib.id]" class="truncate leading-4">
+                {{ $t('msgbox.manage_libraries.calculating_stats') }}
+              </span>
+              <span v-else-if="libraryStatsError[lib.id]" class="truncate leading-4">
+                {{ $t('msgbox.manage_libraries.unable_to_load') }}
+              </span>
+            </div>
+            <div
+              :class="selectedLibraryId === lib.id
+                ? 'w-6 shrink-0 opacity-100'
+                : 'w-6 shrink-0 opacity-0 translate-x-2 transition-all duration-200 delay-200 group-hover:opacity-100 group-hover:translate-x-0'"
+              @click.stop
+            >
+              <ContextMenu
+                :iconMenu="IconMore"
+                :menuItems="libraryMenuItems(lib)"
+                :smallIcon="true"
+                :disabled="showAddInput || isRenaming"
+              />
+            </div>
+          </div>
+          </div>
+        </VueDraggable>
+
+        <div v-if="showAddInput" class="flex items-center h-12 px-2 gap-2">
+          <div class="w-4 shrink-0"></div>
+          <input
+            ref="addInputRef"
+            v-model="newLibraryName"
+            type="text"
+            class="input input-sm flex-1 min-w-0"
+            maxlength="64"
+            :placeholder="$t('msgbox.manage_libraries.placeholder')"
+            :disabled="isAddingLibrary"
+            @blur="onAddInputBlur"
+            @keydown.enter.prevent="doAddLibrary"
+            @keydown.esc.stop="cancelAddLibrary"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div v-if="inputErrorMessage" class="shrink-0 px-4 pt-3 text-xs text-error leading-5">
+      {{ inputErrorMessage }}
+    </div>
+
+    <div class="flex justify-end items-center gap-2 shrink-0 pt-2 min-h-[56px]">
+      <button
+        type="button"
+        class="t-button-default"
+        @click="clickCancel"
+      >
+        {{ $t('msgbox.close') }}
+      </button>
+      <button
+        class="t-button-primary"
+        :disabled="showAddInput || isRenaming"
+        @click="clickOk"
+      >
+        {{ $t('msgbox.manage_libraries.switch_to') }}
+      </button>
+    </div>
+
+    <MessageBox
+      v-if="showDeleteConfirm"
+      :title="$t('msgbox.remove_library.title')"
+      :message="$t('msgbox.remove_library.content', { library: libraryToDelete?.name })"
+      :OkText="$t('msgbox.remove_library.ok')"
+      :cancelText="$t('msgbox.cancel')"
+      :warningOk="true"
+      @ok="doDeleteLibrary"
+      @cancel="showDeleteConfirm = false"
+    />
+  </ModalDialog>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { VueDraggable } from 'vue-draggable-plus';
+
+import { useI18n } from 'vue-i18n';
+import { useUIStore } from '@/stores/uiStore';
+import { useToast } from '@/common/toast';
+import { config } from '@/common/config';
+import { 
+  getAppConfig, 
+  addLibrary, 
+  editLibrary, 
+  removeLibrary, 
+  hideLibrary, 
+  reorderLibraries, 
+  getLibraryInfo,
+  switchLibrary,
+  cleanUnusedThumbnailCache,
+} from '@/common/api';
+import { isValidFileName, formatFileSize } from '@/common/utils';
+import ModalDialog from '@/components/ModalDialog.vue';
+import MessageBox from '@/components/MessageBox.vue';
+import ContextMenu from '@/components/ContextMenu.vue';
+import {
+  IconDragHandle,
+  IconRename,
+  IconTrash,
+  IconHide,
+  IconUnhide,
+  IconAdd,
+  IconPhotoAll,
+  IconMore,
+  IconOrder,
+} from '@/common/icons';
+
+const props = defineProps({
+  isNewLibrary: { type: Boolean, default: false },
+});
+
+const emit = defineEmits(['ok', 'cancel', 'updated']);
+const uiStore = useUIStore();
+const toast = useToast();
+const { t, locale, messages } = useI18n();
+const localeMsg = computed(() => messages.value[locale.value] as any);
+
+const libraries = ref<any[]>([]);
+const currentLibraryId = ref('');
+const editingId = ref<string | null>(null);
+const inputNameValue = ref('');
+const newLibraryName = ref('');
+const showAddInput = ref(false);
+const inputErrorMessage = ref('');
+const libraryStats = ref<Record<string, any>>({});
+const libraryStatsLoading = ref<Record<string, boolean>>({});
+const libraryStatsError = ref<Record<string, boolean>>({});
+const isAddingLibrary = ref(false);
+// Per-library "clean thumbnail cache" in-flight flag so the row button can
+// show a spinner and further clicks on the same row are ignored.
+const cleaningCacheIds = ref<Record<string, boolean>>({});
+// Which library is currently in "reorder mode" (drag handle visible, drag
+// enabled). Null means no row is draggable. Mirrors CollectionTray's
+// reorderingCollectionId pattern: click Reorder in the context menu to arm
+// one specific row, click anywhere outside that row to disarm.
+const reorderingLibraryId = ref<string | null>(null);
+const selectedLibraryId = ref('');
+let statsLoadToken = 0;
+
+const isRenaming = computed(() => !!editingId.value);
+
+const isMaxLibraryReached = computed(() => {
+  const max = (config as any).main?.maxLibraryCount || 10;
+  return libraries.value.length >= max;
+});
+
+// Delete Confirmation
+const showDeleteConfirm = ref(false);
+const libraryToDelete = ref<any>(null);
+
+// Refs
+const addInputRef = ref<HTMLInputElement | null>(null);
+const editInputRefs = ref<Record<string, HTMLInputElement>>({});
+const libraryItemRefs = ref<Record<string, HTMLElement>>({});
+
+const setEditInputRef = (el: any, id: string) => {
+  if (el) {
+    editInputRefs.value[id] = el as HTMLInputElement;
+  }
+};
+
+const setLibraryItemRef = (el: any, id: string) => {
+  if (el) {
+    libraryItemRefs.value[id] = el as HTMLElement;
+  } else {
+    delete libraryItemRefs.value[id];
+  }
+};
+
+watch(newLibraryName, (val) => {
+  const name = val.trim();
+  if (name && !isValidFileName(name)) {
+    inputErrorMessage.value = localeMsg.value.msgbox.input.file_name_invalid;
+  } else {
+    inputErrorMessage.value = '';
+  }
+});
+
+watch(inputNameValue, (val) => {
+  if (!editingId.value) return;
+  const name = val.trim();
+  inputErrorMessage.value = name && !isValidFileName(name)
+    ? localeMsg.value.msgbox.input.file_name_invalid
+    : '';
+});
+
+const onKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    // Close dialog if not in a sub-state (add input, edit input, or delete confirm)
+    if (!showAddInput.value && !editingId.value && !showDeleteConfirm.value) {
+      clickCancel();
+    }
+  }
+
+  if (e.key === 'Enter') {
+    // Keep Enter as the dialog confirm shortcut when the user is not
+    // actively typing into an editable field inside the modal.
+    if (showDeleteConfirm.value) return;
+
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    const tagName = target.tagName.toLowerCase();
+    const isEditable =
+      tagName === 'input' ||
+      tagName === 'textarea' ||
+      tagName === 'select' ||
+      target.isContentEditable;
+
+    if (isEditable || target.closest('button')) return;
+
+    e.preventDefault();
+    clickOk();
+  }
+};
+
+// Exit reorder mode when the user clicks anywhere outside the armed row.
+// Mirrors CollectionTray.handleReorderOutsidePointerDown.
+const handleReorderOutsidePointerDown = (event: PointerEvent) => {
+  if (event.button !== 0 || reorderingLibraryId.value === null) return;
+  if (event.target instanceof Element && event.target.closest('[data-reordering-library="true"]')) return;
+  reorderingLibraryId.value = null;
+};
+
+onMounted(async () => {
+  uiStore.pushInputHandler('ManageLibraries');
+  window.addEventListener('keydown', onKeyDown);
+  document.addEventListener('pointerdown', handleReorderOutsidePointerDown, true);
+  await loadLibraries();
+  
+  // If invoked as "New Library", show add input immediately
+  if (props.isNewLibrary) {
+    startAddLibrary();
+  }
+});
+
+onUnmounted(() => {
+  uiStore.removeInputHandler('ManageLibraries');
+  window.removeEventListener('keydown', onKeyDown);
+  document.removeEventListener('pointerdown', handleReorderOutsidePointerDown, true);
+});
+
+const loadLibraries = async () => {
+  const appConfig = await getAppConfig();
+  if (!appConfig) return;
+
+  libraries.value = appConfig.libraries || [];
+  currentLibraryId.value = appConfig.current_library_id;
+  if (!selectedLibraryId.value || !libraries.value.some(lib => lib.id === selectedLibraryId.value)) {
+    selectedLibraryId.value = currentLibraryId.value;
+  }
+  // Disarm reorder mode if the armed library no longer exists (e.g. after delete).
+  if (reorderingLibraryId.value !== null && !libraries.value.some(lib => lib.id === reorderingLibraryId.value)) {
+    reorderingLibraryId.value = null;
+  }
+  syncLibraryStatsState();
+
+  // Let the dialog render first, then compute each library's stats in the background.
+  window.requestAnimationFrame(() => {
+    void loadLibraryStats(libraries.value);
+  });
+};
+
+const syncLibraryStatsState = () => {
+  const validIds = new Set(libraries.value.map(lib => lib.id));
+  libraryStats.value = Object.fromEntries(
+    Object.entries(libraryStats.value).filter(([id]) => validIds.has(id))
+  );
+  libraryStatsLoading.value = Object.fromEntries(
+    Object.entries(libraryStatsLoading.value).filter(([id]) => validIds.has(id))
+  );
+  libraryStatsError.value = Object.fromEntries(
+    Object.entries(libraryStatsError.value).filter(([id]) => validIds.has(id))
+  );
+};
+
+const loadLibraryStats = async (libs: any[]) => {
+  const loadToken = ++statsLoadToken;
+
+  libs.forEach((lib) => {
+    if (libraryStats.value[lib.id] || libraryStatsLoading.value[lib.id]) return;
+
+    libraryStatsLoading.value = {
+      ...libraryStatsLoading.value,
+      [lib.id]: true,
+    };
+    libraryStatsError.value = {
+      ...libraryStatsError.value,
+      [lib.id]: false,
+    };
+
+    getLibraryInfo(lib.id)
+      .then((info) => {
+        if (loadToken !== statsLoadToken) return;
+        if (!info) {
+          libraryStatsError.value = {
+            ...libraryStatsError.value,
+            [lib.id]: true,
+          };
+          return;
+        }
+        libraryStats.value = {
+          ...libraryStats.value,
+          [lib.id]: info,
+        };
+      })
+      .catch((error) => {
+        console.error(error);
+        if (loadToken !== statsLoadToken) return;
+        libraryStatsError.value = {
+          ...libraryStatsError.value,
+          [lib.id]: true,
+        };
+      })
+      .finally(() => {
+        if (loadToken !== statsLoadToken) return;
+        libraryStatsLoading.value = {
+          ...libraryStatsLoading.value,
+          [lib.id]: false,
+        };
+      });
+  });
+};
+
+// --- Actions ---
+
+const startRename = (lib: any) => {
+  inputErrorMessage.value = '';
+  editingId.value = lib.id;
+  inputNameValue.value = lib.name;
+  nextTick(() => {
+    const input = editInputRefs.value[lib.id];
+    if (input) input.focus();
+  });
+};
+
+const cancelRename = () => {
+  editingId.value = null;
+  inputNameValue.value = '';
+  inputErrorMessage.value = '';
+};
+
+const saveRename = async (lib: any) => {
+  if (!editingId.value) return;
+  const newName = inputNameValue.value.trim();
+  
+  if (newName === lib.name) {
+    cancelRename();
+    return;
+  }
+  
+  if (!newName || !isValidFileName(newName)) {
+    inputErrorMessage.value = localeMsg.value.msgbox.input.file_name_invalid;
+    nextTick(() => editInputRefs.value[lib.id]?.focus());
+    return;
+  }
+
+  try {
+    await editLibrary(lib.id, newName);
+    lib.name = newName;
+    emit('updated', { type: 'rename', id: lib.id, name: newName });
+    cancelRename();
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+const doAddLibrary = async () => {
+  const name = newLibraryName.value.trim();
+  if (!name || isAddingLibrary.value) return;
+  
+  if (!isValidFileName(name)) {
+    inputErrorMessage.value = localeMsg.value.msgbox.input.file_name_invalid;
+    nextTick(() => addInputRef.value?.focus());
+    return;
+  }
+
+  try {
+    isAddingLibrary.value = true;
+    const newLib = await addLibrary(name);
+    if (newLib) {
+      newLibraryName.value = '';
+      showAddInput.value = false;
+      inputErrorMessage.value = '';
+      await loadLibraries();
+      emit('updated');
+      selectedLibraryId.value = newLib.id;
+      await focusLibrary(newLib.id);
+    }
+  } catch (error: any) {
+    inputErrorMessage.value = error.message || error.toString();
+  } finally {
+    isAddingLibrary.value = false;
+  }
+};
+
+const startAddLibrary = () => {
+  if (isMaxLibraryReached.value || showAddInput.value || isRenaming.value || isAddingLibrary.value) return;
+  inputErrorMessage.value = '';
+  showAddInput.value = true;
+  nextTick(() => addInputRef.value?.focus());
+};
+
+const onAddInputBlur = () => {
+  if (isAddingLibrary.value) return;
+  if (!newLibraryName.value.trim()) {
+    cancelAddLibrary();
+    return;
+  }
+  void doAddLibrary();
+};
+
+const cancelAddLibrary = () => {
+  if (isAddingLibrary.value) return;
+  showAddInput.value = false;
+  newLibraryName.value = '';
+  inputErrorMessage.value = '';
+};
+
+const focusLibrary = async (libraryId: string) => {
+  await nextTick();
+  libraryItemRefs.value[libraryId]?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'nearest',
+  });
+};
+
+const selectLibrary = async (lib: any) => {
+  if (showAddInput.value || isRenaming.value || editingId.value === lib.id) return;
+  selectedLibraryId.value = lib.id;
+  await focusLibrary(lib.id);
+};
+
+const toggleVisibility = async (lib: any) => {
+  const newHidden = !lib.hidden;
+  try {
+    await hideLibrary(lib.id, newHidden);
+    lib.hidden = newHidden;
+    emit('updated');
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+const confirmDelete = (lib: any) => {
+  libraryToDelete.value = lib;
+  showDeleteConfirm.value = true;
+};
+
+const doDeleteLibrary = async () => {
+  if (!libraryToDelete.value) return;
+  try {
+    const deletedId = libraryToDelete.value.id;
+    const wasCurrent = deletedId === currentLibraryId.value;
+    await removeLibrary(deletedId);
+    showDeleteConfirm.value = false;
+    libraryToDelete.value = null;
+    await loadLibraries();
+    emit('updated');
+
+    // If we just deleted the active library, the backend has already switched
+    // current_library_id. Emit 'ok' so Home.vue reloads the new library's state.
+    if (wasCurrent) {
+      selectedLibraryId.value = currentLibraryId.value;
+      emit('ok', { type: 'switch', id: currentLibraryId.value });
+    }
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+const clickOk = async () => {
+  if (selectedLibraryId.value && selectedLibraryId.value !== currentLibraryId.value) {
+    try {
+      await switchLibrary(selectedLibraryId.value);
+      emit('ok', { type: 'switch', id: selectedLibraryId.value });
+      return;
+    } catch (error) {
+      console.error(error);
+      return;
+    }
+  }
+  emit('cancel');
+};
+
+// Clean unreferenced thumbnail cache for a specific library. Works for any
+// library (not just the current one) — the backend opens that library's DB
+// transiently to read its athumbs table.
+const cleanLibraryCache = async (lib: any) => {
+  if (!lib?.id || cleaningCacheIds.value[lib.id]) return;
+  cleaningCacheIds.value = { ...cleaningCacheIds.value, [lib.id]: true };
+  try {
+    const result = await cleanUnusedThumbnailCache(lib.id);
+    toast.success(t('msgbox.manage_libraries.cache_cleaned', {
+      count: result?.filesRemoved ?? 0,
+      size: formatFileSize(result?.bytesFreed ?? 0),
+    }));
+    // Refresh this row's stats so the cache size updates in place.
+    const info = await getLibraryInfo(lib.id);
+    if (info) {
+      libraryStats.value = { ...libraryStats.value, [lib.id]: info };
+    }
+  } catch (error: any) {
+    toast.error(error?.message || String(error));
+  } finally {
+    const next = { ...cleaningCacheIds.value };
+    delete next[lib.id];
+    cleaningCacheIds.value = next;
+  }
+};
+
+const clickCancel = () => {
+  emit('cancel');
+};
+
+// Context menu items for a library row. Mirrors the CollectionTray / Tag
+// panel pattern: rename + maintenance actions on top, destructive at bottom
+// behind a separator. `disabled` per-item handles the "default" library
+// (cannot hide/remove) and the in-flight cache clean case.
+const libraryMenuItems = (lib: any) => {
+  const isDefault = lib.id === 'default';
+  const isCleaning = !!cleaningCacheIds.value[lib.id];
+  return [
+    {
+      label: t('msgbox.manage_libraries.rename'),
+      icon: IconRename,
+      action: () => startRename(lib),
+    },
+    {
+      label: t('msgbox.manage_libraries.reorder'),
+      icon: IconOrder,
+      // Toggle: clicking Reorder on the already-armed row disarms it.
+      action: () => {
+        reorderingLibraryId.value = reorderingLibraryId.value === lib.id ? null : lib.id;
+      },
+    },
+    {
+      label: lib.hidden
+        ? t('msgbox.manage_libraries.show')
+        : t('msgbox.manage_libraries.hide'),
+      icon: lib.hidden ? IconUnhide : IconHide,
+      disabled: isDefault,
+      action: () => toggleVisibility(lib),
+    },
+    { label: '-', action: null },
+    {
+      label: t('msgbox.manage_libraries.clean_cache'),
+      disabled: isCleaning,
+      action: () => cleanLibraryCache(lib),
+    },
+    { label: '-', action: null },
+    {
+      label: t('msgbox.manage_libraries.remove'),
+      icon: IconTrash,
+      disabled: isDefault,
+      action: () => confirmDelete(lib),
+    },
+  ];
+};
+
+// --- Drag and Drop ---
+
+const onDragEnd = async () => {
+  // Persist order
+  const ids = libraries.value.map(l => l.id);
+  try {
+    await reorderLibraries(ids);
+    emit('updated', { type: 'reorder', ids });
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+</script>
+
+<style scoped>
+.ghost {
+  opacity: 0.5;
+  background: var(--base-200);
+}
+</style>

@@ -1,0 +1,24 @@
+.worktrees/
+.vscode/
+.continue/
+.cargo/
+target/
+skills/
+.DS_Store
+.env
+dev.sh
+build.sh
+set_db_version.py
+set_version.py
+publish_release.sh
+release-downloads.sh
+
+# FORK additions
+dist/
+node_modules/
+*.db
+*.db-wal
+*.db-shm
+src-tauri/permissions/
+ai-load.log
+ai-diag.log
