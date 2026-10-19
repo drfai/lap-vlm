@@ -1,41 +1,48 @@
 <div align="center">
   <img src="docs/public/icon.png" alt="Lap Logo" width="120" style="border-radius: 20px">
-  <h1>Lap - Private Local Photo Manager</h1>
-  <h3>Open-source desktop photo manager for macOS, Windows, and Linux.</h3>
+  <h1>Lap-VLM</h1>
+  <h3>Unofficial fork of <a href="https://github.com/julyx10/lap">julyx10/lap</a> with local VLM image indexing</h3>
   <p>
-    <a href="https://trendshift.io/repositories/24497?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-24497" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/24497" alt="julyx10%2Flap | Trendshift" width="250" height="55"/></a>
-  </p>
-  <p>
-    <a href="https://github.com/julyx10/lap/releases"><img src="https://img.shields.io/github/v/release/julyx10/lap" alt="GitHub release"></a>
-    <a href="https://github.com/julyx10/lap/releases"><img src="https://img.shields.io/github/downloads/julyx10/lap/total" alt="GitHub all releases"></a>
-    <a href="https://github.com/julyx10/lap/stargazers"><img src="https://img.shields.io/github/stars/julyx10/lap" alt="GitHub stars"></a>
+    <a href="https://github.com/drfai/lap-vlm/releases"><img src="https://img.shields.io/badge/download-latest_release-blue" alt="Download"></a>
+    <a href="https://github.com/drfai/lap-vlm/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License: GPL v3"></a>
+    <a href="https://github.com/julyx10/lap"><img src="https://img.shields.io/badge/upstream-julyx10%2Flap-lightgrey" alt="Upstream"></a>
   </p>
 </div>
 
 ---
 
-> ## ⚠️ This is a modified fork
+> ## This is an unofficial fork - not the original Lap
 >
-> This repository is an unofficial fork of [julyx10/lap](https://github.com/julyx10/lap) with additional local-VLM image indexing features.
-> It is **not** affiliated with or endorsed by the upstream project.
+> This repository is a **modified fork** of [julyx10/lap](https://github.com/julyx10/lap).
+> It is not affiliated with or endorsed by the upstream author.
 >
-> Licensed under **GNU GPL v3**, same as upstream — see [LICENSE](LICENSE).
+> - **Upstream (official) project:** <https://github.com/julyx10/lap>
+> - **Upstream (official) releases:** <https://github.com/julyx10/lap/releases>
+> - **This fork's releases:** <https://github.com/drfai/lap-vlm/releases>
 >
-> **Upstream (official) releases:** <https://github.com/julyx10/lap/releases>
->
-> ### What this fork adds
->
-> | Feature | Description |
-> | :-- | :-- |
-> | **Local VLM indexing** | Uses a local vision-language model (OpenAI-compatible API, e.g. LM Studio) to generate structured Chinese descriptions for every photo, stored in SQLite + FTS5 |
-> | **Caption search** | Search photos by natural language over the generated captions, with bigram FTS5 indexing so Chinese multi-character queries work |
-> | **Editable index fields** | Built-in field descriptions can be customized; custom fields can be added (auto-searchable) |
-> | **Precise search (rerank)** | Optional: the VLM re-ranks CLIP+FTS candidates so queries with spatial/compositional intent work |
-> | **Hybrid retrieval** | Position-weighted merge of CLIP image vectors and caption FTS results |
-> | **Video indexing** | Samples 3 frames and stitches them into one image for the VLM |
-> | **Failure tracking** | Files that fail indexing are recorded with a fail-streak cap to avoid infinite retry loops |
->
-> Full change log (in Chinese): [FORK-CHANGES.md](FORK-CHANGES.md)
+> Licensed under **GNU GPL v3**, same as upstream - see [LICENSE](LICENSE).
+
+## Credits
+
+All credit for the original Lap application goes to **[julyx10](https://github.com/julyx10)** and its contributors.
+This fork only adds a local-VLM indexing layer on top of their work; everything else - the UI, the CLIP / face / similarity engines, the SQLite layer, the map view, RAW support, the i18n system - is upstream's.
+
+If you want the stable, unmodified photo manager, use the upstream releases instead.
+
+## What this fork adds
+
+| Feature | Description |
+| :-- | :-- |
+| **Local VLM indexing** | Uses a local vision-language model (OpenAI-compatible API, e.g. LM Studio / llama.cpp) to generate structured Chinese descriptions for every photo, stored in SQLite + FTS5 |
+| **Caption search** | Search photos by natural language over the generated captions, with bigram FTS5 indexing so Chinese multi-character queries work |
+| **Editable index fields** | Built-in field descriptions can be customized in Settings; custom fields can be added and become searchable automatically |
+| **Precise search (rerank)** | Optional checkbox in the search panel: the VLM re-ranks CLIP+FTS candidates so queries with spatial / compositional intent work (off by default) |
+| **Hybrid retrieval** | Position-weighted merge of CLIP image vectors and caption FTS results |
+| **Video indexing** | Samples 3 frames and stitches them into one image for the VLM |
+| **Failure tracking** | Files that fail indexing are recorded with a fail-streak cap, avoiding infinite retry loops |
+| **Better AI-search errors** | Model-load failures are logged to a file and surfaced in the UI |
+
+Full change log (in Chinese): [FORK-CHANGES.md](FORK-CHANGES.md)
 
 ---
 
