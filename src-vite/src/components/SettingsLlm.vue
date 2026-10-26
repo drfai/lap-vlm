@@ -437,24 +437,37 @@ onMounted(async () => {
       testMsg.value = e.payload.lastError;
     }
     if (e.payload?.total) {
+      // FORK: 三个数字的口径（与 get_stats / refreshStats 保持一致）：
+      //   indexed = 真实已索引（progress.succeeded 带基线，含本次成功）
+      //   pending = 后端算的真实待处理（progress.pending）
+      //   total   = 库内可索引总数（= indexed + pending，与"总计"卡片一致）
+      // progress.total 是"本次任务量"（进度条分母），不能直接用在卡片上，
+      // 所以用 indexed + pending 还原总数。
+      const indexed = e.payload.succeeded || 0;
+      const pending = e.payload.pending ?? 0;
       stats.value = {
-        indexed: (stats.value?.indexed || 0) + (e.payload.succeeded || 0),
-        pending: Math.max(0, (e.payload.total || 0) - (e.payload.current || 0)),
-        total: e.payload.total,
+        indexed,
+        pending,
+        total: indexed + pending,
       };
     }
   });
 
   unlistenFinished = await listenLlmIndexFinished((e) => {
     indexing.value = false;
-    progress.value = { phase: 'idle', current: 0, total: 0, succeeded: 0, failed: 0 };
+    progress.value = { phase: 'idle', current: 0, total: 0, succeeded: 0, failed: 0, pending: 0 };
     const p = e.payload;
     if (p && p.error) {
       testOk.value = false;
       testMsg.value = p.error;
     } else if (p && p.total !== undefined) {
       testOk.value = true;
-      testMsg.value = `done: ${p.succeeded}/${p.total}${p.failed ? `, failed ${p.failed}` : ''}`;
+      // FORK: total = 本次任务量，succeeded = 真实累计（含基线），两者不同口径。
+      // 本次成果用 succeededThisRun；同时显示库内真实累计，便于确认没丢进度。
+      const thisRun = p.succeededThisRun ?? p.succeeded ?? 0;
+      const realTotal = p.succeeded ?? 0;
+      testMsg.value = `done: ${thisRun}/${p.total}${p.failed ? `, failed ${p.failed}` : ''}` +
+        (realTotal !== thisRun ? ` · 累计已索引 ${realTotal}` : '');
     }
     refreshStats();
   });
