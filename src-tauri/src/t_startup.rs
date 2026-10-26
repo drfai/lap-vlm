@@ -76,7 +76,7 @@ fn initialize_models<T>(
 pub fn ensure_ai(app: &AppHandle, model: Option<i64>) -> Result<(), String> {
     let state = app.state::<StartupState>();
     let ai = app.state::<t_ai::AiState>();
-    initialize_models(
+    let r = initialize_models(
         &ai.0,
         &state.ai_status,
         |engine| !engine.is_loaded() || model.is_some(),
@@ -94,7 +94,8 @@ pub fn ensure_ai(app: &AppHandle, model: Option<i64>) -> Result<(), String> {
             mark(app, "ai-ready");
             Ok(())
         },
-    )
+    );
+    r
 }
 
 #[tauri::command]
@@ -280,3 +281,4 @@ mod tests {
         assert!(state.background_started.swap(true, Ordering::SeqCst));
     }
 }
+
