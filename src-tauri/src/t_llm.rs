@@ -1511,6 +1511,27 @@ pub fn run_llm_indexing(
         let mut failed: u64 = 0;
         let mut cancelled_flag = false;
 
+        // FORK: 一开始就把待处理总数写进 progress.total。
+        // 之前这个字段永远是 0，UI 进度条显示成 "399 / 0"（max=1 退化），
+        // 用户完全看不到总工作量。用一次 COUNT 查询拿准确值。
+        let pending_total: u64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM afiles a
+                 JOIN afolders f ON f.id = a.folder_id
+                 LEFT JOIN afile_llm l ON l.file_id = a.id
+                 LEFT JOIN afile_llm_fail x ON x.file_id = a.id
+                 WHERE a.file_type IN (1, 2, 3)
+                   AND (l.file_id IS NULL OR l.model != ?1 OR l.prompt_ver != ?2)
+                   AND (x.file_id IS NULL OR x.fail_streak < ?3)",
+                rusqlite::params![cfg.model, prompt_version(), MAX_FAIL_STREAK],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            .max(0) as u64;
+        if let Ok(mut p) = progress.lock() {
+            p.total = pending_total;
+        }
+
         loop {
             if is_cancelled(&cancel) {
                 cancelled_flag = true;
