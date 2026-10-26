@@ -1898,7 +1898,20 @@ export async function searchSimilarImages(params) {
   const libraryId = libConfig._libraryId;
   try {
     if (params?.searchText) {
-      await setImageSearchModel(config.settings.imageSearch?.model || 0);
+      // FORK: CLIP 模型激活失败/卡住时不能阻塞搜索。
+      // 后端 search_similar_images 已做降级（CLIP 不可用时只走 caption 搜索），
+      // 但 setImageSearchModel 若永久挂起（模型加载死锁），Promise 不 resolve，
+      // 整个搜索会一直转圈。这里加超时 + 吞异常，保证一定往下走。
+      try {
+        await Promise.race([
+          setImageSearchModel(config.settings.imageSearch?.model || 0),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('set_image_search_model timeout')), 15000)
+          ),
+        ]);
+      } catch (e) {
+        console.warn('setImageSearchModel failed or timed out, continuing with degraded search:', e);
+      }
     }
     const results = await invoke('search_similar_images', { params, libraryId });
     return results || [];
