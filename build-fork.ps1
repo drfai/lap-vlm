@@ -110,6 +110,17 @@ else {
         }
     }
 
+    # 3b. 构建前端产物
+    # tauri.conf.json 没有 beforeBuildCommand（tauri 2.x 执行该命令时 cwd
+    # 不是 src-tauri，相对路径 ../src-vite 会解析失败），所以在这里显式构建。
+    if (-not $failed) {
+        Write-Host "`n>>> pnpm build (src-vite)" -ForegroundColor Yellow
+        Push-Location $SRC_VITE
+        pnpm build 2>&1 | Select-Object -Last 10
+        Pop-Location
+        if ($LASTEXITCODE -ne 0) { $failed = $true }
+    }
+
     # 4. 完整打包
     if (-not $failed) {
         $rc = Invoke-InMsvcEnv "pnpm tauri build" $SRC_TAURI
