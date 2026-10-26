@@ -6420,7 +6420,13 @@ impl AFile {
         params: &ImageSearchParams,
     ) -> Result<Option<Vec<f32>>, String> {
         if !params.search_text.is_empty() {
-            let mut engine = state.0.lock().unwrap();
+            // FORK: try_lock 而非 lock。模型加载若在别的线程卡死（如 ONNX 等 GPU），
+            // lock() 会让这个调用永久排队，表现为 UI 一直转圈、搜索无响应。
+            // 拿不到锁就返回 Err，上层 search_similar_images 会降级到纯 caption 搜索。
+            let mut engine = match state.0.try_lock() {
+                Ok(e) => e,
+                Err(_) => return Err("AI engine busy (another load in progress)".to_string()),
+            };
             Ok(Some(engine.encode_text(&params.search_text)?))
         } else if let Some(file_id) = params.file_id.filter(|&id| id > 0) {
             match Self::get_embedding_by_id(file_id) {
@@ -6553,10 +6559,25 @@ impl AFile {
         state: &State<t_ai::AiState>,
         params: ImageSearchParams,
     ) -> Result<Vec<Self>, String> {
+
         // 1. Determine Target Embedding
-        let embedding_opt = Self::get_query_embedding(state, &params)?;
-        let embedding =
-            embedding_opt.ok_or_else(|| "No file_id or search_text provided".to_string())?;
+        // FORK: CLIP 模型加载失败（文本编码拿不到 embedding）时不再让整个搜索失败，
+        // 降级为"跳过 CLIP 分支、只走 caption 搜索"。
+        // 之前 get_query_embedding 的 Err 会经 ? 直接抛出，导致 caption 索引
+        // （VLM fork 的核心功能）被原生 CLIP 的故障连坐，什么都搜不出来。
+        let clip_unavailable = !params.search_text.is_empty()
+            && Self::get_query_embedding(state, &params).is_err();
+        let embedding_opt = if clip_unavailable {
+            None
+        } else {
+            Self::get_query_embedding(state, &params)?
+        };
+        let embedding = match embedding_opt {
+            Some(e) => e,
+            // 以图搜图但没有 embedding 才是真错误；文本搜索降级时用空向量占位
+            None if clip_unavailable => Vec::new(),
+            None => return Err("No file_id or search_text provided".to_string()),
+        };
 
         // 2. Perform Vector Search
         let conn = open_conn()?;
@@ -6597,12 +6618,16 @@ impl AFile {
             .sqrt();
 
         // Calculate similarity
-        for row in rows {
-            let (id, embeds_blob) = row.map_err(|e| e.to_string())?;
-            let score = Self::cosine_similarity_blob(&embedding, query_norm, &embeds_blob);
+        // FORK: embedding 为空（CLIP 不可用、文本搜索降级）时跳过整个 CLIP 分支，
+        // scores 保持为空，直接进 caption 合并——这是降级后唯一的检索来源。
+        if !embedding.is_empty() {
+            for row in rows {
+                let (id, embeds_blob) = row.map_err(|e| e.to_string())?;
+                let score = Self::cosine_similarity_blob(&embedding, query_norm, &embeds_blob);
 
-            if score > threshold {
-                scores.push((id, score));
+                if score > threshold {
+                    scores.push((id, score));
+                }
             }
         }
 
@@ -10525,3 +10550,4 @@ mod batch_rename_tests {
         }
     }
 }
+
