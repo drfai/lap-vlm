@@ -1,12 +1,12 @@
-//! 鏈湴 VLM 瑙嗚绱㈠紩妯″潡锛坒ork 鏂板锛夈€?//!
-//! 閫氳繃 OpenAI 鍏煎鎺ュ彛璋冪敤鏈湴瑙嗚璇█妯″瀷锛圠M Studio / llama.cpp server锛夛紝
-//! 涓烘瘡寮犵収鐗囩敓鎴愮粨鏋勫寲涓枃鎻忚堪锛屽啓鍏?SQLite 渚?FTS5 妫€绱€?//!
-//! # 璁捐鍘熷垯
+//! [comment]
+//! [comment]
+//! [comment]
+//! [comment]
 //!
-//! 1. **涓嶈Е纰?CLIP 绱㈠紩銆?* `afiles.embeds` 浠嶅瓨 CLIP 鍥惧儚鍚戦噺锛?//!    `t_similar.rs` 鐨勭浉浼煎害鍒嗙粍瀹屽叏涓嶅彈褰卞搷銆傛湰妯″潡鍙柊澧炶〃銆?//! 2. **鏈嶅姟涓嶅湪绾挎椂闄嶇骇銆?* 鎵€鏈夎皟鐢ㄥ厛 health check锛涘け璐ュ彧褰卞搷鏈姛鑳斤紝
-//!    涓嶅奖鍝嶆祻瑙堛€丆LIP 鎼滅储銆佷汉鑴歌仛绫汇€?//! 3. **鍙彇娑?+ 鍙柇鐐圭画璺戙€?* 鍙傜収 `t_face::run_face_indexing` 鐨勪笁浠跺锛?//!    鍙栨秷浠ょ墝 / 杩涘害鐘舵€?/ Tauri 浜嬩欢銆?//! 4. **涓茶鎵瑰鐞嗐€?* llama.cpp 鍗曞疄渚嬪苟鍙戜細浜掔浉鎺掗槦骞朵簤鏄惧瓨锛?//!    榛樿骞跺彂 1锛屽彲鐢遍厤缃皟鍒?2銆?//!
-//! # 宸查獙璇佺殑绾︽潫锛堟潵鑷?POC锛岃 llm-poc/REPORT.md锛?//!
-//! - 妯″瀷榛樿寮€鍚€濊€冩ā寮忥紝`reasoning_tokens` 浼氬悆鎺夊ぇ閲忛绠楀鑷磋緭鍑鸿鎴柇銆?//!   蹇呴』鍏虫€濊€冩垨鎶?max_tokens 璋冨埌 1024+銆?//! - 涓枃蹇呴』璧?bigram 鍒囧垎锛孎TS5 榛樿 unicode61 瀵瑰瀛楄瘝鍩烘湰鏃犳晥銆?//! - 鏌ヨ涓蹭笉鑳界敤绌烘牸杩炴帴鍚庣洿鎺?MATCH锛堥偅鏄煭璇涔夛級锛屽繀椤绘樉寮?OR銆?
+//! [comment]
+//! [comment]
+//! [comment]
+//! [comment]
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,11 +20,11 @@ use tauri::{AppHandle, Emitter};
 #[serde(rename_all = "camelCase", default)]
 pub struct LlmConfig {
 pub enabled: bool,
-    /// OpenAI 鍏煎绔偣鏍瑰湴鍧€锛屼笉鍚?/v1銆備緥锛歨ttp://127.0.0.1:1234
+    /// [comment]
     pub base_url: String,
 pub model: String,
 pub api_key: String,
-    /// 鏄惁鍏抽棴妯″瀷鐨勬€濊€冩ā寮忋€傚己鐑堝缓璁?true鈥斺€斿惁鍒?reasoning_tokens
+    /// [comment]
 pub disable_thinking: bool,
 pub max_tokens: u32,
 pub temperature: f32,
@@ -33,11 +33,11 @@ pub concurrency: u32,
 pub timeout_secs: u64,
 pub retry_on_parse_error: u32,
 pub album_ids: Vec<i64>,
-    /// 鏄惁鍚敤绮剧‘閲嶆帓锛氬 top-N 鍊欓€変簩娆¤皟鐢?VLM 鍒ゆ柇鐩稿叧鎬с€?    ///
-    /// 榛樿 false銆傚紑鍚悗姣忔鏂囨湰鎼滅储閮戒細澶氳姳 N 娆℃帹鐞嗚皟鐢?    /// 锛圢 = `rerank_top_n`锛夛紝鎱絾鍑嗐€傞€傚悎搴撳緢澶с€丆LIP+caption
+    /// [comment]
+    /// [comment]
 pub enable_rerank: bool,
 pub rerank_top_n: u32,
-    /// FORK: 绱㈠紩 prompt 鐨勫瓧娈靛畾涔夛紙UI 鍙紪杈戯級銆?    ///
+    /// [comment]
 pub prompt_fields: PromptFields,
 }
 
@@ -194,7 +194,7 @@ pub fn save_llm_config(cfg: &LlmConfig) -> Result<(), String> {
 }
 
 // ============================================================
-// 鐘舵€侊紙鐓ф妱 t_face 鐨勪笁浠跺妯″紡锛?// ============================================================
+// ============================================================
 
 #[derive(Clone)]
 pub struct LlmState(pub Arc<Mutex<LlmConfig>>);
@@ -243,11 +243,11 @@ pub struct LlmIndexProgressState(pub Arc<Mutex<LlmIndexProgress>>);
 // 绱㈠紩浜х墿
 // ============================================================
 
-/// 妯″瀷杩斿洖鐨勭粨鏋勫寲鎻忚堪銆傚瓧娈靛悕涓?prompt 涓殑 JSON key 涓€涓€瀵瑰簲銆?///
-/// # 涓轰粈涔堝瓧娈佃閫愪釜鍔?`deserialize_with`
+/// [comment]
+/// [comment]
 ///
-/// 妯″瀷涓嶄繚璇佺被鍨嬫纭€侾OC + 瀹炴祴韪╄繃鐨勫潙锛?/// - `objects` / `relations` 鏈夋椂杩斿洖 `null` 鎴栧崟涓瓧绗︿覆鑰岄潪鏁扮粍
-/// - `people_count` 鏈夋椂杩斿洖瀛楃涓?`"1"` 鎴?`null`
+/// [comment]
+/// [comment]
 /// - `caption` / `scene` 鏈夋椂杩斿洖 `null`
 ///
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -267,14 +267,14 @@ pub struct LlmCaption {
     pub text: String,
 #[serde(alias = "people_count", deserialize_with = "de_i64")]
     pub people_count: i64,
-    /// FORK: 鑷畾涔夊瓧娈靛厹搴曘€?    ///
-    /// 鐢ㄦ埛鏀逛簡 prompt銆佽妯″瀷杈撳嚭涓婇潰鐨勫瓧娈典箣澶栫殑鍐呭锛堟瘮濡?    /// `"colors": ["绾?,"钃?]`銆乣"weather": "鏅村ぉ"`锛夛紝娌℃湁杩欎釜瀛楁鐨勮瘽
+    /// [comment]
+    /// [comment]
     /// serde 浼氭妸瀹冧滑鍏ㄩ儴涓㈠純锛屾悳涓嶅埌銆?    ///
 #[serde(flatten, deserialize_with = "de_extra")]
     pub extra: std::collections::BTreeMap<String, String>,
 }
 
-/// 瀹藉瑙ｆ瀽鑷畾涔夊瓧娈碉細鎶婁换鎰?JSON 鍊艰浆鎴愬彲绱㈠紩鐨勬枃鏈€?/// - 瀛楃涓?-> 鍘熸牱
+/// [comment]
 /// - 鏁板瓧/甯冨皵 -> toString
 /// - 鏁扮粍 -> 绌烘牸鎷兼帴锛堥€掑綊灞曞钩涓€灞傦級
 /// - 瀵硅薄 -> 灞曞钩鍏跺€?/// - null -> 涓㈠純锛堜笉鍏?map锛岄伩鍏嶅櫔闊筹級
@@ -396,7 +396,7 @@ pub fn to_index_text(&self) -> String {
 }
 
 // ============================================================
-// 涓枃 bigram 鍒囧垎
+// [comment]
 // ============================================================
 
 fn is_cjk(ch: char) -> bool {
@@ -407,11 +407,11 @@ fn is_cjk(ch: char) -> bool {
     )
 }
 
-/// 鎶婃枃鏈垏鎴愰€傚悎 FTS5 unicode61 绱㈠紩鐨?token 涓层€?///
+/// [comment]
 /// 瑙勫垯锛?/// - CJK 姹夊瓧鎸?2 瀛楁粦鍔ㄧ獥鍙ｅ垏鍒嗭紙"鏃ヨ惤鏃跺垎" -> "鏃ヨ惤 钀芥椂 鏃跺垎"锛?/// - **濂囨暟闀垮害鏃惰ˉ杈撳嚭灏鹃儴鍗曞瓧**锛?娉曞浗鏂楃墰鐘? -> "娉曞浗 鍥芥枟 鏂楃墰 鐗涚姮 鐘?锛夛紝
-///   鍚﹀垯鏈€鍚庝竴涓瓧姘歌繙鏃犳硶琚崟瀛楁煡璇㈠懡涓紝閫犳垚鍙洖鎹熷け銆?/// - 杩炵画鐨勫瓧姣?鏁板瓧淇濇寔涓哄崟涓?token锛屼繚鐣欏師濮嬪ぇ灏忓啓
-///   锛團TS5 unicode61 鏈韩澶у皬鍐欎笉鏁忔劅锛屾棤闇€鍦ㄦ褰掍竴鍖栵級
-/// - 鍏朵綑瀛楃浣滀负鍒嗛殧绗︿涪寮?///
+/// [comment]
+/// [comment]
+/// [comment]
 pub fn bigramize(s: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut cjk_buf: Vec<char> = Vec::new();
@@ -458,9 +458,9 @@ pub fn bigramize(s: &str) -> String {
 }
 
 /// 鎶婄敤鎴锋煡璇㈣浆鎴?FTS5 MATCH 琛ㄨ揪寮忋€?///
-/// **蹇呴』鐢?OR 杩炴帴锛屼笉鑳界敤绌烘牸銆?* FTS5 閲岀┖鏍兼槸 AND / 闅愬惈鐭璇箟锛?/// 鑰岀储寮曚晶姣忎釜 bigram 鏄嫭绔?token銆佹棤杩炵画浣嶇疆鍏崇郴锛岀敤绌烘牸杩炴帴浼?/// 瀵艰嚧鍏ㄩ儴鏌ヤ笉鍒帮紙POC 绗竴鐗堣俯杩囪繖涓潙锛岀粨鏋滃叏 0锛夈€?///
-/// # 鍗曞瓧鏌ヨ鐨勫浐鏈夊眬闄?///
-/// bigram 绱㈠紩閲屼笉瀛樺湪鍗曞瓧 token锛?涓€鍙尗" 鍒囨垚 "涓€鍙?鍙尗/鐚湪/..."锛夛紝
+/// [comment]
+/// [comment]
+/// [comment]
 /// 鎵€浠?`MATCH '"鐚?'` 姘歌繙鏌ヤ笉鍒颁笢瑗裤€傞暱搴?鈮?2 鐨勬煡璇㈤渶璋冪敤鏂规敼璧?/// `search_caption_substring` 鐢?LIKE 鍏滃簳锛屽惁鍒欑敤鎴锋悳"鐚?"鐙?
 pub fn query_to_fts(q: &str) -> String {
     let toks: Vec<String> = bigramize(q)
@@ -468,7 +468,7 @@ pub fn query_to_fts(q: &str) -> String {
         .map(|t| format!("\"{}\"", t.replace('"', "")))
         .collect();
     if toks.is_empty() {
-        // 绌烘煡璇細缁欎竴涓繀鐒朵笉鍖归厤鐨勮〃杈惧紡锛岄伩鍏?FTS5 璇硶閿欒
+        // [comment]
         return "\"\"".to_string();
     }
     toks.join(" OR ")
@@ -478,8 +478,8 @@ pub fn query_to_fts(q: &str) -> String {
 // Prompt
 // ============================================================
 
-/// 绱㈠紩鐢?prompt 鐢?`build_index_prompt(&cfg.prompt_fields)` 鍔ㄦ€佺敓鎴?/// 锛堣涓婃柟 `BUILTIN_FIELDS` 涓?`PromptFields`锛夈€?///
-/// 纭€ц姹傦紙澶撮儴"鍙緭鍑?JSON" + 灏鹃儴涓夋潯绾︽潫锛夊湪 `build_index_prompt` 閲?/// 鍐欐锛岀敤鎴锋敼涓嶄簡鈥斺€擯OC 瀹炴祴 23 寮?0 渚嬩汉鍚嶅湴鍚嶅够瑙夛紝caption 鍙俊搴?/// 鐩存帴鍐冲畾妫€绱㈣川閲忋€傛斁寮€鎺ㄦ祴浼氳绱㈠紩閲屽厖婊￠敊璇俊鎭€?
+/// [comment]
+/// [comment]
 /// prompt 鐗堟湰鍙枫€?///
 /// FORK: prompt 版本号（索引/统计/失败记录共用）。
 /// 字段定义变更通过清空索引触发重建（见 save_llm_config_cmd），
@@ -545,7 +545,7 @@ struct ChatMessage {
 }
 
 /// 璋冪敤 VLM 鐢熸垚 caption銆?///
-/// 澶辫触鍒嗙被锛堝墠绔鑳藉尯鍒嗭級锛?/// - 鏈嶅姟涓嶅湪绾?-> health_check 鍏堟嫤浣?/// - HTTP 閿欒 -> 甯︾姸鎬佺爜
+/// [comment]
 pub fn request_caption(cfg: &LlmConfig, image_b64: &str) -> Result<LlmCaption, String> {
     let url = format!("{}/v1/chat/completions", cfg.base_url.trim_end_matches('/'));
 
@@ -588,8 +588,8 @@ pub fn request_caption(cfg: &LlmConfig, image_b64: &str) -> Result<LlmCaption, S
     })
 }
 
-/// 鏋佺畝 HTTP POST 瀹㈡埛绔紙std::net锛屾棤寮傛杩愯鏃讹級銆?///
-/// 璇存槑锛歚t_http.rs` 宸插湪鐢?reqwest锛屼絾閭ｆ槸澶氳瑷€妯″瀷涓嬭浇璺緞銆?/// 鏈ā鍧楀彧鐢ㄦ渶绠€鍗曠殑 POST + 璇?body锛岀敤 std 鎵嬪啓鍙伩鍏?reqwest 鐨?/// feature/閾炬帴宸紓銆傝嫢浣犵殑 fork 宸茬‘璁?reqwest 绋冲畾锛屽彲鎹㈠洖 reqwest銆?///
+/// [comment]
+/// [comment]
 fn http_post(url: &str, body: &[u8], cfg: &LlmConfig) -> Result<Vec<u8>, String> {
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -692,8 +692,8 @@ fn dechunk(input: &[u8]) -> Vec<u8> {
 
 /// 瑙ｆ瀽妯″瀷杈撳嚭涓?LlmCaption銆?///
 /// 瀹归敊绛栫暐锛堟寜 POC 涓庡疄娴嬭俯鍧戞暣鐞嗭級锛?/// 1. 鍘绘帀 ` ```json ` / ` ``` ` 鍥存爮
-/// 2. **鎻愬彇绗竴涓?`{` 鍒版渶鍚庝竴涓?`}``** 鈥斺€?妯″瀷鏈夋椂鍦?JSON 鍓嶅悗甯﹁鏄庢枃瀛?///    锛?濂界殑锛岃繖鏄垎鏋愮粨鏋滐細" + JSON + "甯屾湜鏈夊府鍔?锛夛紝涓嶆彁鍙栦細鐩存帴瑙ｆ瀽澶辫触
-/// 3. serde 鐨?`default` 鍏滃簳缂哄け瀛楁
+/// [comment]
+/// [comment]
 pub fn parse_caption(raw: &str) -> Option<LlmCaption> {
     let mut t = raw.trim();
 
@@ -703,7 +703,7 @@ pub fn parse_caption(raw: &str) -> Option<LlmCaption> {
         t = after.trim_end().trim_end_matches("```").trim();
     }
 
-    // 2. 鎴彇绗竴涓?{ 鍒版渶鍚庝竴涓?}锛屽蹇嶅墠鍚庣紑鏂囧瓧
+    // [comment]
     if let (Some(start), Some(end)) = (t.find('{'), t.rfind('}')) {
         if end > start {
             t = &t[start..=end];
@@ -744,8 +744,11 @@ pub fn ensure_schema(conn: &rusqlite::Connection) -> Result<(), String> {
             tokenize='unicode61'
         );
 
-        -- FORK: 澶辫触璁板綍琛ㄣ€傛病鏈夊畠锛岀储寮曞け璐ョ殑鏂囦欢涓嶅啓浠讳綍鐥曡抗锛?        -- pending_files 涓嬩竴杞張鎶婂悓涓€鎵规崬鍥炴潵 -> 鏃犻檺閲嶈瘯绌鸿浆銆?        -- 锛堝疄娴嬶細110 寮犵収鐗囪窇 1 灏忔椂锛宑urrent 绱埌 1340锛宖ailed 1331銆傦級
-        -- fail_streak 璁板綍杩炵画澶辫触娆℃暟锛岃秴杩囬槇鍊间笉鍐嶈嚜鍔ㄩ噸璇曘€?        CREATE TABLE IF NOT EXISTS afile_llm_fail (
+        -- FORK: failure log. Without it, failed files leave no trace and
+        -- pending_files re-fetches them forever (observed: 110 photos, 1 hour,
+        -- current=1340, failed=1331).
+        -- fail_streak counts consecutive failures; past the cap no auto-retry.
+        CREATE TABLE IF NOT EXISTS afile_llm_fail (
             file_id    INTEGER PRIMARY KEY,
             model      TEXT NOT NULL,
             prompt_ver INTEGER NOT NULL,
@@ -756,8 +759,8 @@ pub fn ensure_schema(conn: &rusqlite::Connection) -> Result<(), String> {
     )
     .map_err(|e| {
         format!(
-            "ensure llm fts (FTS5 鏈惎鐢? {}). 鑻?bundled SQLite 鏈紑 FTS5, \
-             闇€鍦?build.rs 瀹氫箟 SQLITE_ENABLE_FTS5",
+            "ensure llm fts (FTS5 not enabled? {}). If bundled SQLite lacks FTS5, \
+             define SQLITE_ENABLE_FTS5 in build.rs",
             e
         )
     })?;
@@ -918,8 +921,8 @@ pub fn store_caption(
     Ok(())
 }
 
-/// 娣峰悎妫€绱細鎶?VLM caption 绱㈠紩鐨勫懡涓粨鏋滃悎骞惰繘 CLIP 鐨勫垎鏁板垪琛ㄣ€?///
-/// 杩欐槸甯﹂厤缃鏌ョ殑澶栧眰鍖呰銆傛牳蹇冨悎骞堕€昏緫鍦?`merge_with_caption_scores`锛?/// 鎶藉嚭鏉ユ槸涓轰簡鍙祴璇曪紙涓嶄緷璧栧叏灞€閰嶇疆鏂囦欢锛夈€?///
+/// [comment]
+/// [comment]
 /// # 闄嶇骇琛屼负
 ///
 pub fn merge_caption_scores(
@@ -943,16 +946,16 @@ pub fn merge_caption_scores(
     merge_with_caption_scores(conn, query, scores)
 }
 
-/// 鏍稿績鍚堝苟閫昏緫锛堢函鍑芥暟锛屼笉璇婚厤缃級銆?///
-/// # 涓轰粈涔堢敤浣嶇疆鍔犳潈鑰屼笉鏄垎鏁扮浉鍔?///
+/// [comment]
+/// [comment]
 /// CLIP 鐨勪綑寮︾浉浼煎害涓?FTS5 鐨?`rank` 閲忕翰瀹屽叏涓嶅悓锛堝墠鑰呮槸 [0,1] 鐨勪綑寮︼紝
-/// 鍚庤€呮槸 FTS5 鍐呴儴鐨?BM25 鍙樹綋锛屽彲浠ユ槸浠绘剰璐熸暟锛夈€傜洿鎺ョ浉鍔犱細璁╂煇涓€鏂?/// 瀹屽叏涓诲锛屽疄闄呮晥鏋滀笉鍙帶銆?///
+/// [comment]
 /// 杩欓噷鎶婁袱杈?*鍚勮嚜褰掍竴鍖栧埌 [0,1]** 鍐嶅姞鏉冿細
-/// - CLIP 渚э細score 鏈韩灏辨槸 [0,1] 鐨勪綑寮︼紝鐩存帴鐢?/// - caption 渚э細鎸?FTS5 杩斿洖鐨勪綅缃嚎鎬ц“鍑忥紝绗?i 鍚嶅緱 (n-i)/n
+/// [comment]
 ///
-/// # 涓轰粈涔?caption 鍙姞鍒嗕笉绛涢€?///
+/// [comment]
 /// caption 鏄?琛ュ厖绾跨储"锛屼笉鏄?杩囨护鍣?銆侰LIP 鍛戒腑鐨勭粨鏋滃叏閮ㄤ繚鐣欙紝
-/// caption 鍛戒腑鐨勬枃浠惰寰€涓婃彁 鈥斺€?杩欐牱鍗充娇 caption 婕忔爣鎴栬鏍囷紝
+/// [comment]
 pub fn merge_with_caption_scores(
     conn: &rusqlite::Connection,
     query: &str,
@@ -962,7 +965,7 @@ pub fn merge_with_caption_scores(
     let cap_limit = (scores.len() as i64) + 64;
     let caption_ids = match search_caption(conn, query, cap_limit) {
         Ok(ids) => ids,
-        Err(_) => return scores, // FTS 鏌ヨ澶辫触 -> 闈欓粯闄嶇骇
+        Err(_) => return scores, // FTS query failed -> silent degrade
     };
     if caption_ids.is_empty() {
         return scores;
@@ -971,7 +974,7 @@ pub fn merge_with_caption_scores(
 const CLIP_WEIGHT: f32 = 0.7;
     const CAPTION_WEIGHT: f32 = 0.3;
 
-    // caption 渚т綅缃垎锛氱 i 鍚嶏紙浠?0 寮€濮嬶級寰?(n-i)/n锛屽綊涓€鍖栧埌 [0,1]
+    // [comment]
     let n = caption_ids.len() as f32;
     let mut caption_score: std::collections::HashMap<i64, f32> =
         std::collections::HashMap::with_capacity(caption_ids.len());
@@ -989,7 +992,7 @@ const CLIP_WEIGHT: f32 = 0.7;
     }
     for id in &caption_ids {
         if !merged.contains_key(id) {
-            // 鍙湪 caption 涓懡涓殑鏂囦欢锛氬彧缁?caption 鍒嗭紝
+            // [comment]
             let cap = caption_score.get(id).copied().unwrap_or(0.0);
             merged.insert(*id, cap * CAPTION_WEIGHT);
         }
@@ -1000,14 +1003,14 @@ const CLIP_WEIGHT: f32 = 0.7;
     result
 }
 
-/// 鍒ゆ柇鏌ヨ鏄惁闇€瑕佽蛋 LIKE 鍏滃簳銆?///
-/// bigram 绱㈠紩閲屼笉瀛樺湪鍗曞瓧 token锛?涓€鍙尗" 鍒囨垚 "涓€鍙?鍙尗/鐚湪/..."锛夛紝
+/// [comment]
+/// [comment]
 pub fn needs_substring_fallback(q: &str) -> bool {
     let cjk_count = q.chars().filter(|c| is_cjk(*c)).count();
     cjk_count <= 2
 }
 
-/// 瀛愪覆鍏滃簳妫€绱細鐩存帴鍦?`index_text` 涓婂仛 LIKE銆?///
+/// [comment]
 pub fn search_caption_substring(
     conn: &rusqlite::Connection,
     query: &str,
@@ -1018,7 +1021,7 @@ pub fn search_caption_substring(
     if q.is_empty() {
         return Ok(Vec::new());
     }
-    // 杞箟 LIKE 閫氶厤绗︼紝闃叉鐢ㄦ埛杈撳叆 % 鎴?_ 鏀瑰彉璇箟
+    // [comment]
     let escaped = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
     let pattern = format!("%{}%", escaped);
     let mut stmt = conn
@@ -1039,8 +1042,8 @@ pub fn search_caption_substring(
     Ok(ids)
 }
 
-/// 绮剧‘閲嶆帓锛氬 top-N 鍊欓€夌敤 VLM 閫愪釜鍒ゆ柇鏄惁鍖归厤鏌ヨ銆?///
-/// 杩欐槸甯﹂厤缃鏌ョ殑澶栧眰鍖呰锛堜笌 `merge_caption_scores` 鍚屼竴妯″紡锛夛紝
+/// [comment]
+/// [comment]
 /// 鏍稿績閫昏緫鍦?`rerank_with_cfg`銆?///
 /// # 闄嶇骇
 ///
@@ -1071,17 +1074,17 @@ pub fn rerank_scores(
     rerank_with_cfg(conn, &cfg, query, scores)
 }
 
-/// 鏍稿績閲嶆帓閫昏緫锛堢函鍑芥暟锛屼笉璇婚厤缃紝渚夸簬娴嬭瘯锛夈€?///
+/// [comment]
 /// # 涓轰粈涔堝€煎緱鍋?///
-/// CLIP + caption 鍚堝苟鏄?绮楁帓"锛欳LIP 鎶撹瑙夌浉浼硷紝caption 鎶撴枃瀛楃嚎绱紝
-/// 浣嗕袱鑰呴兘涓嶄細鐪熺殑"璇绘噦"鏌ヨ鎰忓浘銆傛瘮濡傛煡"绾㈣壊鑳屽寘鏀惧湪妞呭瓙鏃佽竟"锛?/// 绮楁帓鍙兘闈?caption 閲屾槸鍚﹀嚭鐜颁簡杩欎簺璇嶏紝鏃犳硶鐞嗚В绌洪棿鍏崇郴銆?///
-/// VLM 閲嶆帓璁╂ā鍨嬬洿鎺ョ湅鍊欓€夌殑 caption + 鏌ヨ锛岃緭鍑?0-1 鐨勭浉鍏冲害鍒嗘暟銆?///
+/// [comment]
+/// [comment]
+/// [comment]
 /// # 涓轰粈涔堥粯璁ゅ叧闂?///
-/// 姣忔鏂囨湰鎼滅储澶氳姳 N 娆℃帹鐞嗚皟鐢紙N = `rerank_top_n`锛夈€?/// 27B 妯″瀷鍗曟绾?1-3 绉掞紝30 涓€欓€夊氨鏄?30-90 绉?鈥斺€?鎼滅储浠?鍗虫椂"
-/// 鍙樻垚"瑕佺瓑"銆傛墍浠ヨ繖鏄彲閫夌殑绮剧‘妯″紡锛屼笉鏄粯璁よ矾寰勩€?///
+/// [comment]
+/// [comment]
 /// # 娣峰悎鏉冮噸
 ///
-/// `final = 鍘熷鍒?脳 0.3 + VLM 鍒ゆ柇 脳 0.7`銆備笉瀹屽叏涓㈠純鍘熷鍒嗭紝
+/// [comment]
 pub fn rerank_with_cfg(
     conn: &rusqlite::Connection,
     cfg: &LlmConfig,
@@ -1134,7 +1137,16 @@ fn get_caption_text(conn: &rusqlite::Connection, file_id: i64) -> Option<String>
     .ok()
 }
 
-const RERANK_PROMPT_PREFIX: &str = "浣犳槸鐓х墖鎼滅储鐩稿叧鎬у垽鏂櫒銆傜粰瀹氱敤鎴风殑鎼滅储鏌ヨ鍜屼竴寮犵収鐗囩殑鍐呭鎻忚堪锛屽垽鏂繖寮犵収鐗囨槸鍚︽槸鐢ㄦ埛鎯虫壘鐨勩€俓n\n瑙勫垯锛歕n- 鍙緭鍑轰竴涓?0 鍒?1 涔嬮棿鐨勫皬鏁帮紝涓嶈杈撳嚭浠讳綍鍏朵粬鏂囧瓧\n- 1.0 = 瀹屽叏绗﹀悎鏌ヨ鎰忓浘\n- 0.5 = 閮ㄥ垎鐩稿叧锛屽彲鑳芥槸鐢ㄦ埛鎯崇湅鐨刓n- 0.0 = 瀹屽叏涓嶇浉鍏砛n- 鎷夸笉鍑嗘椂缁?0.3 宸﹀彸鐨勪腑闂村€硷紝涓嶈鏋佺\n\n";
+const RERANK_PROMPT_PREFIX: &str = "\u{4f60}\u{662f}\u{7167}\u{7247}\u{641c}\u{7d22}\u{76f8}\u{5173}\u{6027}\u{5224}\u{65ad}\u{5668}\u{3002}\u{7ed9}\u{5b9a}\u{7528}\u{6237}\u{7684}\u{641c}\u{7d22}\u{67e5}\u{8be2}\u{548c}\u{4e00}\u{5f20}\u{7167}\u{7247}\u{7684}\u{5185}\u{5bb9}\u{63cf}\u{8ff0}\u{ff0c}\u{5224}\u{65ad}\u{8fd9}\u{5f20}\u{7167}\u{7247}\u{662f}\u{5426}\u{662f}\u{7528}\u{6237}\u{60f3}\u{627e}\u{7684}\u{3002}
+
+\u{89c4}\u{5219}\u{ff1a}
+- \u{53ea}\u{8f93}\u{51fa}\u{4e00}\u{4e2a} 0 \u{5230} 1 \u{4e4b}\u{95f4}\u{7684}\u{5c0f}\u{6570}\u{ff0c}\u{4e0d}\u{8981}\u{8f93}\u{51fa}\u{4efb}\u{4f55}\u{5176}\u{4ed6}\u{6587}\u{5b57}
+- 1.0 = \u{5b8c}\u{5168}\u{7b26}\u{5408}\u{67e5}\u{8be2}\u{610f}\u{56fe}
+- 0.5 = \u{90e8}\u{5206}\u{76f8}\u{5173}\u{ff0c}\u{53ef}\u{80fd}\u{662f}\u{7528}\u{6237}\u{60f3}\u{770b}\u{7684}
+- 0.0 = \u{5b8c}\u{5168}\u{4e0d}\u{76f8}\u{5173}
+- \u{62ff}\u{4e0d}\u{51c6}\u{65f6}\u{7ed9} 0.3 \u{5de6}\u{53f3}\u{7684}\u{4e2d}\u{95f4}\u{503c}\u{ff0c}\u{4e0d}\u{8981}\u{6781}\u{7aef}
+
+";
 
 /// 璋冪敤 VLM 鍒ゆ柇鍗曚釜鍊欓€夌殑鐩稿叧搴︼紝杩斿洖 [0,1]銆?///
 fn score_relevance(cfg: &LlmConfig, query: &str, caption: &str) -> Option<f32> {
@@ -1166,10 +1178,10 @@ fn score_relevance(cfg: &LlmConfig, query: &str, caption: &str) -> Option<f32> {
 }
 
 /// 浠庢ā鍨嬭緭鍑鸿В鏋?0-1 鐨勫垎鏁般€?///
-/// 妯″瀷鍙兘杈撳嚭 "0.8"銆?.8"銆?0.8."銆?鐩稿叧搴︼細0.8"銆?鍒嗘暟鏄?0.6 鍒? 绛夛紝
-/// 閮借瀹归敊銆傚仛娉曟槸鎵弿鏁翠釜瀛楃涓诧紝鎵惧嚭鎵€鏈夋暟瀛楀瓙涓诧紝鍙栫涓€涓惤鍦?/// [0,1] 鑼冨洿鍐呯殑銆?///
+/// [comment]
+/// [comment]
 /// 涓や釜瀹规槗韪╃殑鍧戯紙閮芥湁鍥炲綊娴嬭瘯锛夛細
-/// 1. **`.5` 杩欑鏃犲墠瀵奸浂褰㈠紡** 鈥斺€?璧风偣鏄?`.` 鑰岄潪鏁板瓧锛岀洿鎺ユ寜"鏁板瓧璧风偣"
+/// [comment]
 pub fn parse_relevance(raw: &str) -> Option<f32> {
     let chars: Vec<char> = raw.chars().collect();
     let n = chars.len();
@@ -1198,18 +1210,18 @@ pub fn parse_relevance(raw: &str) -> Option<f32> {
         }
         let token: String = chars[start..j].iter().collect();
         if let Ok(v) = token.parse::<f32>() {
-            // 甯︾鍙蜂竴璧?parse: -0.3 寰楀埌 -0.3, 钀藉湪 [0,1] 澶? 鑷劧鎷掔粷
+            // [comment]
             if (0.0..=1.0).contains(&v) {
                 return Some(v);
             }
         }
-        // 澶辫触鏃惰烦鍒版湰 token 鏈熬, 閬垮厤鎶?-0.3 鎷嗘垚 -0.3 + 0.3 涓ゆ鍖归厤
+        // [comment]
         i = j.max(start + 1);
     }
     None
 }
 
-/// 妫€绱細杩斿洖鎸?rank / 鐩稿叧搴︽帓搴忕殑 file_id銆?///
+/// [comment]
 pub fn search_caption(
     conn: &rusqlite::Connection,
     query: &str,
@@ -1259,7 +1271,7 @@ pub fn get_stats(conn: &rusqlite::Connection, cfg: &LlmConfig) -> Result<LlmInde
         .unwrap_or(0);
     let indexed: i64 = conn
         .query_row(
-            // FORK: JOIN afiles 杩囨护瀛ゅ効琛岋紙file_id 鍦?afiles 閲屽凡涓嶅瓨鍦級銆?            // 涓?JOIN 鐨勮瘽锛屽簱閲嶅缓/鍒犳枃浠跺悗 afile_llm 鐨勬畫鐣欎細璁?indexed
+            // [comment]
             "SELECT COUNT(*) FROM afile_llm l
              JOIN afiles a ON a.id = l.file_id
              WHERE l.model = ?1 AND l.prompt_ver = ?2",
@@ -1275,19 +1287,19 @@ pub fn get_stats(conn: &rusqlite::Connection, cfg: &LlmConfig) -> Result<LlmInde
 }
 
 // ============================================================
-// 鍥剧墖棰勫鐞?// ============================================================
+// ============================================================
 
-/// 瑙嗛鎶藉抚鐨勬椂闂寸偣锛堢櫨鍒嗘瘮浣嶇疆锛夈€?///
+/// [comment]
 const VIDEO_FRAME_PERCENTS: [u8; 3] = [10, 50, 90];
 
-/// 涓鸿棰戞娊鍙栧甯у苟妯悜鎷兼垚涓€寮犲浘锛堜緵 VLM 涓€娆＄湅瀹岋級銆?///
-/// 澶嶇敤 `t_video::get_video_thumbnail` 鈥斺€?瀹冨唴閮ㄥ凡澶勭悊 ffmpeg 璺緞銆?/// seek 绛栫暐銆佸け璐ラ檷绾с€傝繖閲屽彧璐熻矗鎸夊涓椂闂寸偣鎶藉彇骞舵嫾鎺ャ€?///
-/// 鎷兼帴鑰岄潪鍙戝寮犲浘锛氬鏁?VLM 鐨?API 瀵瑰崟鏉℃秷鎭殑鍥剧墖鏁伴噺鏈夐檺鍒讹紝
+/// [comment]
+/// [comment]
+/// [comment]
 async fn prepare_video_frames_b64(file_path: &str, cfg: &LlmConfig) -> Result<Option<String>, String> {
     use crate::t_video;
 
     let duration = t_video::get_video_duration(file_path).await.ok();
-    // 澶煭鐨勮棰戞娊澶氬抚娌℃剰涔夛紙鍙兘姣忓抚閮戒竴鏍凤級锛岀洿鎺ョ敤灏侀潰
+    // [comment]
     let dur = duration.unwrap_or(0);
     if dur > 0 && dur < 3 {
         return Ok(None);
@@ -1312,7 +1324,7 @@ async fn prepare_video_frames_b64(file_path: &str, cfg: &LlmConfig) -> Result<Op
         return Ok(None);
     }
 
-    // 缁熶竴楂樺害鍚庢í鍚戞嫾鎺ワ紝涓棿鐣?4px 榛戠紳鍒嗛殧
+    // [comment]
     let target_h = frames.iter().map(|f| f.height()).min().unwrap_or(frame_px).max(1);
     let gap = 4_u32;
     let scaled: Vec<image::RgbImage> = frames
@@ -1354,8 +1366,8 @@ fn prepare_video_frames_b64_sync(file_path: &str, cfg: &LlmConfig) -> Result<Opt
 
 /// 璇诲彇骞跺帇缂╁浘鐗囦负 JPEG base64銆?///
 /// 浼樺厛澶嶇敤 Lap 宸茬敓鎴愮殑缂╃暐鍥撅紝閬垮厤涓烘瘡寮犲浘瑙ｇ爜鍘熷浘 鈥斺€?杩欎釜浼樺寲
-/// 妯″紡鏉ヨ嚜 `t_face::run_face_indexing`銆傝棰戝皝闈㈠抚鍚屾牱瀛樺湪
-/// `athumbs` 琛ㄩ噷锛屾墍浠ヤ篃浼氳杩欐潯璺緞瑕嗙洊銆?///
+/// [comment]
+/// [comment]
 pub fn prepare_image_b64(
     file_id: i64,
     file_path: &str,
@@ -1405,9 +1417,9 @@ fn is_cancelled(cancel: &Arc<Mutex<bool>>) -> bool {
     cancel.lock().map(|c| *c).unwrap_or(false)
 }
 
-/// 杩愯 VLM 绱㈠紩銆?///
-/// 妯″紡瀹屽叏瀵圭収 `t_face::run_face_indexing`锛?/// - 鍙栨秷浠ょ墝妫€鏌?/// - 杩涘害閫氳繃 Tauri 浜嬩欢鎺ㄩ€侊紙姣?10 涓垨缁撴潫鏃讹級
-/// - 鍗曚釜鏂囦欢澶辫触涓嶄腑鏂暣浣?/// - 缁撴潫鏃?emit `llm_index_finished`
+/// [comment]
+/// [comment]
+/// [comment]
 pub fn run_llm_indexing(
     app_handle: AppHandle,
     llm_state: LlmState,
@@ -1437,7 +1449,7 @@ pub fn run_llm_indexing(
     }
 
     tauri::async_runtime::spawn_blocking(move || {
-        // reset 闂寘蹇呴』瀹氫箟鍦?spawn 鍐呴儴: 瀹氫箟鍦ㄥ灞備細鍥犲€熺敤 progress/status
+        // [comment]
         let reset = || {
             if let Ok(mut p) = progress.lock() {
                 *p = LlmIndexProgress::default();
@@ -1470,7 +1482,7 @@ pub fn run_llm_indexing(
             return;
         }
 
-        // 鏈嶅姟涓嶅湪绾?-> 绔嬪埢澶辫触锛屼笉杩涗富寰幆
+        // [comment]
         if let Err(e) = health_check(&cfg) {
             eprintln!("[llm] health check failed: {}", e);
             let _ = app_handle.emit(
@@ -1523,8 +1535,8 @@ pub fn run_llm_indexing(
             }
 
             // 鎵瑰唴骞跺彂澶勭悊銆俿td::thread::scope 淇濊瘉绾跨▼鍦ㄦ壒缁撴潫鍓嶅叏閮?join,
-            // 鍥犳鍙互瀹夊叏鍊熺敤 batch / cfg / cancel銆?            //
-            // 涓轰粈涔堟瘡绾跨▼鐙珛寮€ DB 杩炴帴: Lap 鐨?SQLite 璺戝湪 WAL 妯″紡
+            // [comment]
+            // [comment]
             let workers = cfg.concurrency.clamp(1, 8) as usize;
             let chunk_size = ((batch.len() + workers - 1) / workers).max(1);
             let mut last_emit_failed: u64 = 0;
@@ -1539,7 +1551,7 @@ pub fn run_llm_indexing(
                     let fail_errors_ref = fail_errors.clone();
                     let handle = scope.spawn(move || {
                         let mut local: Vec<(usize, bool)> = Vec::with_capacity(chunk.len());
-                        // 绾跨▼鍐呭鐢ㄥ悓涓€涓繛鎺? 閬垮厤姣忔枃浠堕噸寮€
+                        // [comment]
                         let thread_conn = crate::t_sqlite::open_conn().ok();
                         for (i, (file_id, file_type, path)) in chunk.iter().enumerate() {
                             if is_cancelled(cancel_ref) {
@@ -1569,7 +1581,7 @@ pub fn run_llm_indexing(
                                 Ok(()) => local.push((chunk_idx * chunk_size + i, true)),
                                 Err(e) => {
                                     eprintln!("[llm] index file {} ({}) failed: {}", file_id, path, e);
-                                    // FORK: 鍐欏け璐ヨ褰曪紝鏂帀鏃犻檺閲嶈瘯
+                                    // [comment]
                                     if let Some(conn) = thread_conn.as_ref() {
                                         let _ = store_failure(conn, *file_id, cfg_ref, &e);
                                     }
@@ -1607,7 +1619,7 @@ pub fn run_llm_indexing(
                 all
             });
 
-            // 姹囨€伙細淇濇寔鏂囦欢椤哄簭锛岃繘搴﹁鏁板湪涓荤嚎绋嬫洿鏂帮紙閬垮厤閿佺珵浜夛級
+            // [comment]
             batch_results.sort_by_key(|(idx, _)| *idx);
             for (_, ok) in batch_results {
                 current += 1;
@@ -1622,7 +1634,7 @@ pub fn run_llm_indexing(
                     p.failed = failed;
                     p.phase = "indexing".to_string();
                 }
-                // FORK: 姣?10 涓彂涓€娆¤繘搴︼紱涓€鏃﹀嚭鐜板け璐ョ珛鍒昏ˉ鍙戯紝
+                // [comment]
                 if current % 10 == 0 || (failed > 0 && last_emit_failed != failed) {
                     if let Ok(p) = progress.lock() {
                         let _ = app_handle.emit("llm_index_progress", p.clone());
@@ -1919,3 +1931,7 @@ mod tests {
         assert!(!p.contains("\"ok\""));
     }
 }
+
+
+
+
