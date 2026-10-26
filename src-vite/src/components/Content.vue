@@ -7616,31 +7616,51 @@ async function getUnifiedSearchFileList(searchText: string, requestId: number) {
     && hasNonLatinLetters(searchText);
   imageSearchLanguageUnsupported.value = isDefaultModelUnsupportedLanguage;
   isLoading.value = true;
+  // FORK: 兜底超时——requestId 过期时 finally 会跳过 isLoading 复位（设计如此），
+  // 但新请求自身若卡在某个 await（缩略图/openImageViewer），就会永远转圈。
+  // 45 秒后无条件结束加载态，保证 UI 一定恢复响应。
+  const loadingWatchdog = setTimeout(() => {
+    if (isLoading.value) {
+      console.warn('[search] loading watchdog fired, forcing isLoading=false');
+      isLoading.value = false;
+      contentReady.value = true;
+    }
+  }, 45000);
   // FORK: 精确搜索要走 N 次大模型推理（默认 20 个候选），给用户一个明确提示，
-  // 否则 30-90 秒无反馈会被当成卡死。
+  // 否则 30-90 秒无反馈会被当成卡死。用 toast（本组件没有 testMsg 变量，
+  // 之前误用导致 ReferenceError，Vue 挂载后异步执行直接崩，界面卡在 boot 转圈）。
   if (preciseSearch.value) {
-    testMsg.value = t('search.precise_searching') || 'Precise search: letting AI rank candidates...';
-    testOk.value = true;
-  } else {
-    testMsg.value = '';
+    toast.info(t('search.precise_searching') || 'Precise search: letting AI rank candidates, please wait...');
   }
   timelineData.value = [];
   let visualSearchFailed = false;
 
   try {
+    // FORK: 视觉搜索加总超时。后端命令若死锁，invoke 的 Promise 永不 settle，
+    // isLoading 一直为 true，UI 永远转圈。60s 覆盖精确搜索（20 候选 x 1-3s）最坏情况。
+    const visualSearch = (isDefaultModelUnsupportedLanguage
+      ? Promise.resolve([])
+      : searchSimilarImages(currentImageSearchParams.value)
+    ).catch(error => {
+      console.error('Visual search failed:', error);
+      visualSearchFailed = true;
+      return [];
+    });
+    const visualWithTimeout = Promise.race([
+      visualSearch,
+      new Promise(resolve => setTimeout(() => {
+        console.warn('Visual search timed out after 60s');
+        visualSearchFailed = true;
+        resolve([]);
+      }, 60000)),
+    ]);
+
     const [textResult, visualResult] = await Promise.all([
       getQueryFiles(textParams, 0, 0).catch(error => {
         console.error('Text search failed:', error);
         return [];
       }),
-      (isDefaultModelUnsupportedLanguage
-        ? Promise.resolve([])
-        : searchSimilarImages(currentImageSearchParams.value)
-      ).catch(error => {
-        console.error('Visual search failed:', error);
-        visualSearchFailed = true;
-        return [];
-      }),
+      visualWithTimeout,
     ]);
     if (requestId !== currentContentRequestId) return;
     imageSearchError.value = visualSearchFailed;
@@ -7736,6 +7756,7 @@ async function getUnifiedSearchFileList(searchText: string, requestId: number) {
       getFileListThumb(fileList.value);
     }
   } finally {
+    clearTimeout(loadingWatchdog);
     if (requestId === currentContentRequestId) {
       isLoading.value = false;
       hasLoadedInitialResult.value = true;
