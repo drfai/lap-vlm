@@ -219,7 +219,11 @@ pub struct LlmIndexProgress {
     pub succeeded: u64,
     pub failed: u64,
     pub phase: String,
-#[serde(default)]
+    /// FORK: 真实待处理数（后端算）。total 含已索引而 current 只算本次运行，
+    /// 前端用 total-current 会把已索引的算回待处理（曾显示 6907 而真实是 5165）。
+    #[serde(default)]
+    pub pending: u64,
+    #[serde(default)]
     pub last_error: String,
 }
 
@@ -231,6 +235,7 @@ impl Default for LlmIndexProgress {
             succeeded: 0,
             failed: 0,
             phase: "idle".to_string(),
+            pending: 0,
             last_error: String::new(),
         }
     }
@@ -937,7 +942,7 @@ pub fn merge_caption_scores(
 
     let cfg = match load_llm_config() {
         Ok(c) => c,
-        Err(_) => return scores, // 閰嶇疆璇讳笉鍒?-> 闈欓粯闄嶇骇
+        Err(_) => return scores, // config unreadable -> silent degrade
     };
     if !cfg.enabled {
         return scores;
@@ -962,7 +967,8 @@ pub fn merge_with_caption_scores(
     scores: Vec<(i64, f32)>,
 ) -> Vec<(i64, f32)> {
     // caption 鍛戒腑鍒楄〃锛堟寜 FTS5 rank 鎺掑簭锛夈€備笂闄愬彇 CLIP 缁撴灉鏁?+ 涓€瀹氫綑閲忥紝
-    let cap_limit = (scores.len() as i64) + 64;
+    // FORK: CLIP unavailable (degraded) -> scores empty, margin at least 200
+    let cap_limit = (scores.len() as i64 + 64).max(200);
     let caption_ids = match search_caption(conn, query, cap_limit) {
         Ok(ids) => ids,
         Err(_) => return scores, // FTS query failed -> silent degrade
@@ -1507,13 +1513,28 @@ pub fn run_llm_indexing(
 
         const BATCH: i64 = 64;
         let mut current: u64 = 0;
-        let mut succeeded: u64 = 0;
+        // FORK: succeeded 以"运行前已有的索引数"为基线，这样 progress.succeeded
+        // 是数据库真实累计（不是本次运行的增量）。前端直接用，
+        // 不会再出现 indexed 虚高（7809 > 6967）或索引期间数字静止。
+        let mut succeeded: u64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM afile_llm l
+                 JOIN afiles a ON a.id = l.file_id
+                 WHERE l.model = ?1 AND l.prompt_ver = ?2",
+                rusqlite::params![cfg.model, prompt_version()],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            .max(0) as u64;
         let mut failed: u64 = 0;
         let mut cancelled_flag = false;
 
         // FORK: 一开始就把待处理总数写进 progress.total。
         // 之前这个字段永远是 0，UI 进度条显示成 "399 / 0"（max=1 退化），
-        // 用户完全看不到总工作量。用一次 COUNT 查询拿准确值。
+        // FORK: 一开始就把总数写进 progress.total。
+        // 之前这个字段永远是 0，UI 进度条显示成 "399 / 0"（max=1 退化）。
+        // total = 库内可索引文件总数（已索引 + 待处理），与 UI 的
+        // "已索引/待处理/总计" 三口径一致；current 是本次已处理数。
         let pending_total: u64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM afiles a
@@ -1529,7 +1550,13 @@ pub fn run_llm_indexing(
             .unwrap_or(0)
             .max(0) as u64;
         if let Ok(mut p) = progress.lock() {
+            // FORK: progress.total = 本次任务量（启动时的待处理数），不是库内总数。
+            // 否则进度条 current/total 跑完本次 5165 个只到 83%，永远满不了。
+            // 库内总数由 get_stats 提供给 UI「总计」卡片，不走这里。
             p.total = pending_total;
+            p.succeeded = succeeded;
+            // pending = 本次任务量，随处理进度递减（失败的不减，会被重试或记 fail）
+            p.pending = pending_total;
         }
 
         loop {
@@ -1653,6 +1680,8 @@ pub fn run_llm_indexing(
                     p.current = current;
                     p.succeeded = succeeded;
                     p.failed = failed;
+                    // pending = 真实待处理，随本次成功/失败递减
+                    p.pending = pending_total.saturating_sub(current);
                     p.phase = "indexing".to_string();
                 }
                 // [comment]
@@ -1672,8 +1701,12 @@ pub fn run_llm_indexing(
         let _ = app_handle.emit(
             "llm_index_finished",
             serde_json::json!({
-                "total": current,
+                // total = 本次任务量（启动时待处理数），current 会小于它（取消时）
+                "total": pending_total,
+                // succeeded = 真实累计（含基线），便于 UI 显示真实已索引
                 "succeeded": succeeded,
+                // 本次新增的索引数（不含基线）
+                "succeededThisRun": current.saturating_sub(failed),
                 "failed": failed,
                 "cancelled": cancelled_flag
             }),
@@ -1952,6 +1985,7 @@ mod tests {
         assert!(!p.contains("\"ok\""));
     }
 }
+
 
 
 
