@@ -22,3 +22,4 @@ node_modules/
 src-tauri/permissions/
 ai-load.log
 ai-diag.log
+*.tmp
