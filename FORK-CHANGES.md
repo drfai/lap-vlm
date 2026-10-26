@@ -377,8 +377,12 @@ cargo test t_llm
 # 2. 检查编译
 cargo check
 
-# 3. 完整构建
-cd .. && pnpm install && pnpm tauri build
+# 3. 完整构建（注意：tauri.conf.json 没有 beforeBuildCommand，
+#    因为 tauri 2.x 执行它时 cwd 不是 src-tauri，相对路径会失败。
+#    所以必须先在 src-vite 构建前端产物，再打包。）
+cd ../src-vite && pnpm install && pnpm build && cd ../src-tauri && cargo tauri build
+# 或用脚本（自动处理 MSVC 环境 + 前端构建）：
+#   pwsh -File ../build-fork.ps1
 ```
 
 ### 可能的编译问题及预判
